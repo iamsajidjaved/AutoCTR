@@ -1,6 +1,6 @@
 # spec-12 — Dashboard (Next.js Frontend)
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-04 (API must exist)
 **Blocks:** —
 

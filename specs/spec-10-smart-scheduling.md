@@ -1,6 +1,6 @@
 # spec-10 — Smart Scheduling Algorithm
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-05
 **Blocks:** —
 
@@ -86,9 +86,9 @@ visits.forEach((v, i) => { v.scheduledAt = timestamps[i]; });
 ---
 
 ## Acceptance Criteria
-- [ ] `generateTimestamps(100, {...})` returns exactly 100 Date objects
-- [ ] All timestamps fall within the specified window
-- [ ] No two timestamps are less than `minGapSeconds` apart
-- [ ] Peak hours have noticeably more visits than off-peak hours (>2x more per hour)
-- [ ] Campaign activation uses smart scheduling (not uniform spacing)
-- [ ] `generateTimestamps` is a pure function — same inputs produce statistically similar (not identical) outputs
+- [x] `generateTimestamps(100, {...})` returns exactly 100 Date objects
+- [x] All timestamps fall within the specified window
+- [x] No two timestamps are less than `minGapSeconds` apart
+- [x] Peak hours have noticeably more visits than off-peak hours (>2x more per hour)
+- [x] Campaign activation uses smart scheduling (not uniform spacing)
+- [x] `generateTimestamps` is a pure function — same inputs produce statistically similar (not identical) outputs

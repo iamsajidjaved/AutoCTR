@@ -13,7 +13,7 @@ Run `/progress` to see live status. This file is the canonical list.
 | spec-06 | PM2 Worker & Scheduler | complete | spec-05 |
 | spec-07 | Puppeteer Execution Engine | complete | spec-06 |
 | spec-08 | Proxy Integration | complete | spec-07 |
-| spec-10 | Smart Scheduling Algorithm | not started | spec-05 |
+| spec-10 | Smart Scheduling Algorithm | complete | spec-05 |
 | spec-11 | Campaign Completion Logic | not started | spec-06 |
 | spec-12 | Dashboard (Next.js Frontend) | not started | spec-04 |
 

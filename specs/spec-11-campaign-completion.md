@@ -1,6 +1,6 @@
 # spec-11 — Campaign Completion Logic
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-06
 **Blocks:** —
 
