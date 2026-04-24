@@ -61,4 +61,18 @@ async function markCompleted(id) {
   return rows.length > 0;
 }
 
-module.exports = { create, findAllByUser, findById, findByIdAndUser, updateStatus, deleteById, markCompleted };
+async function pauseAndCancelJobs(id) {
+  await sql`
+    UPDATE traffic_details
+    SET status = 'failed', error_message = 'Campaign paused', completed_at = NOW()
+    WHERE traffic_summary_id = ${id}
+      AND status IN ('pending', 'running')
+  `;
+  await sql`
+    UPDATE traffic_summaries
+    SET status = 'paused', updated_at = NOW()
+    WHERE id = ${id}
+  `;
+}
+
+module.exports = { create, findAllByUser, findById, findByIdAndUser, updateStatus, deleteById, markCompleted, pauseAndCancelJobs };

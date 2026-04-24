@@ -76,10 +76,14 @@ getCampaign(id, userId)
 All routes require `authenticate` middleware.
 
 ```
-POST   /api/campaigns          → create campaign → 201 + campaign
-GET    /api/campaigns          → list user's campaigns → 200 + []
-GET    /api/campaigns/:id      → single campaign → 200 + campaign | 404
-DELETE /api/campaigns/:id      → delete if status=pending → 200 | 409 if running/completed
+POST   /api/campaigns              → create campaign → 201 + campaign
+GET    /api/campaigns              → list user's campaigns → 200 + []
+GET    /api/campaigns/:id          → single campaign → 200 + campaign | 404
+DELETE /api/campaigns/:id          → delete if not running → 200 | 409 if running
+POST   /api/campaigns/:id/activate → start pending campaign → 200
+POST   /api/campaigns/:id/pause    → pause running campaign, cancel all pending/running visits → 200
+POST   /api/campaigns/:id/restart  → restart paused/completed campaign from scratch → 200
+GET    /api/campaigns/:id/progress → progress counts → 200
 ```
 
 ### Response Shape
@@ -106,6 +110,8 @@ DELETE /api/campaigns/:id      → delete if status=pending → 200 | 409 if run
 - [ ] Invalid URL returns 400 with field name
 - [ ] `GET /api/campaigns` lists only the requesting user's campaigns
 - [ ] `GET /api/campaigns/:id` returns 404 for another user's campaign
-- [ ] `DELETE /api/campaigns/:id` works for `pending` campaigns
+- [ ] `DELETE /api/campaigns/:id` works for non-running campaigns (pending, paused, completed)
 - [ ] `DELETE /api/campaigns/:id` returns 409 for `running` campaigns
+- [ ] `POST /api/campaigns/:id/pause` sets status to `paused` and marks all pending/running visits as `failed`
+- [ ] `POST /api/campaigns/:id/restart` deletes old visits, regenerates, sets status to `running`
 - [ ] All endpoints return 401 without valid token

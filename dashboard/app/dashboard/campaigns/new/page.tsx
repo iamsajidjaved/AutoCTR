@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { getToken } from '@/lib/auth';
+import Sidebar from '@/components/Sidebar';
 import NewCampaignForm from '@/components/NewCampaignForm';
 
 export default function NewCampaignPage() {
@@ -15,15 +16,17 @@ export default function NewCampaignPage() {
   }, [router]);
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <button
-        onClick={() => router.back()}
-        className="text-sm text-gray-500 hover:text-gray-700 mb-4 inline-block"
-      >
-        ← Back
-      </button>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">New Campaign</h1>
-      <NewCampaignForm />
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <main className="flex-1 px-8 py-7">
+        <div className="mb-7">
+          <h1 className="text-2xl font-bold text-white">New Campaign</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Configure and launch a new CTR simulation</p>
+        </div>
+        <div className="max-w-xl">
+          <NewCampaignForm />
+        </div>
+      </main>
     </div>
   );
 }

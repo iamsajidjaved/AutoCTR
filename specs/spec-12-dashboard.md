@@ -7,15 +7,14 @@
 ---
 
 ## Goal
-Build a Next.js frontend dashboard in `/dashboard`. After this spec, users can log in, create campaigns, activate them, and watch live progress — all from a browser UI.
+Build an enterprise-grade Next.js frontend dashboard in `/dashboard`. Dark sidebar layout with stats overview, a filterable campaign data table, and full campaign lifecycle controls (create, start, pause, restart, delete).
 
 ---
 
 ## Setup
 ```bash
 cd dashboard
-npx create-next-app@latest . --typescript --tailwind --app --no-src-dir
-npm install axios js-cookie
+npm install
 ```
 
 Add to root `package.json`:
@@ -25,98 +24,97 @@ Add to root `package.json`:
 
 ---
 
-## Files to Create
+## Files
 ```
 dashboard/
   app/
-    layout.tsx
-    page.tsx                    ← redirects to /login or /dashboard
-    login/page.tsx
-    register/page.tsx
+    layout.tsx                      ← dark root layout with suppressHydrationWarning
+    page.tsx                        ← redirects to /login or /dashboard
+    login/page.tsx                  ← dark theme login
+    register/page.tsx               ← dark theme register
     dashboard/
-      page.tsx                  ← campaign list
+      page.tsx                      ← overview: stats + campaign table
       campaigns/
-        new/page.tsx            ← create campaign form
-        [id]/page.tsx           ← campaign detail + progress
+        page.tsx                    ← filterable campaign list
+        new/page.tsx                ← create campaign form
+        [id]/page.tsx               ← campaign detail + progress + actions
   lib/
-    api.ts                      ← axios instance with token header
-    auth.ts                     ← login/register/logout helpers
+    api.ts                          ← axios instance with JWT interceptor
+    auth.ts                         ← login/register/logout helpers
   components/
-    CampaignCard.tsx
-    ProgressBar.tsx
-    StatusBadge.tsx
-    NewCampaignForm.tsx
+    Sidebar.tsx                     ← dark sidebar with nav links + logout
+    StatCard.tsx                    ← metric card for overview row
+    CampaignTable.tsx               ← data table with action buttons
+    CampaignCard.tsx                ← (legacy, replaced by table)
+    ProgressBar.tsx                 ← dark theme progress bar
+    StatusBadge.tsx                 ← colored pill: pending/running/paused/completed/failed
+    NewCampaignForm.tsx             ← dark theme campaign creation form
 ```
 
 ---
 
 ## Implementation Details
 
+### Design System
+- Background: `gray-950` body, `gray-900` cards, `gray-800` inner sections
+- Sidebar: fixed `w-60`, `gray-900` with `blue-600` active state
+- Accent: `blue-500/600` for primary actions
+- Status colors: gray=pending, blue+pulse=running, yellow=paused, green=completed, red=failed
+
 ### API Client (`lib/api.ts`)
-- Axios instance pointing to `NEXT_PUBLIC_API_URL` (from `.env.local`)
-- Interceptor: reads JWT from cookie (`token`), adds `Authorization: Bearer ...`
-- On 401 response: redirect to `/login`
+- Axios pointing to `NEXT_PUBLIC_API_URL` (`.env.local`)
+- Request interceptor: reads `token` cookie → `Authorization: Bearer ...`
+- Response interceptor: on 401 → clear cookie, redirect to `/login`
 
 ### Auth Flow
-- On login/register: store JWT in cookie (7-day expiry, `sameSite: strict`)
-- On logout: clear cookie, redirect to `/login`
-- Protect `/dashboard/**` routes: if no token cookie, redirect to `/login`
+- JWT stored in cookie (7-day, `sameSite: strict`)
+- Client-side guard: `getToken()` check in `useEffect`, redirect to `/login` if missing
 
 ### Pages
 
-#### Login (`/login`)
-- Email + password form
-- On submit: `POST /api/auth/login`, store token, redirect to `/dashboard`
-- Link to `/register`
+#### Overview (`/dashboard`)
+- Stats row: Total Campaigns, Active (running), Completed, Paused
+- Second stats row: Total Visits Scheduled, Avg CTR
+- `CampaignTable` with all campaigns + inline action buttons
+- Refresh button
 
-#### Campaign List (`/dashboard`)
-- `GET /api/campaigns` on page load
-- Show each campaign as a `CampaignCard` (status, keyword, website, visits, CTR)
-- Status badge: pending=gray, running=blue, completed=green
-- "New Campaign" button → `/dashboard/campaigns/new`
+#### Campaigns (`/dashboard/campaigns`)
+- Status filter tabs: all / pending / running / paused / completed
+- `CampaignTable` filtered by selected tab
+- `+ New Campaign` button
 
-#### New Campaign Form (`/dashboard/campaigns/new`)
-Fields:
-- Website URL (text, validated client-side with URL constructor)
-- Keyword (text)
-- Total Visits (number, 1–100000)
-- CTR % (number, 1–100)
-- Mobile % (number, 0–100, slider recommended)
-- Min Dwell Time (seconds, number, 10–1800, default 30)
-- Max Dwell Time (seconds, number, >= min value, <= 1800, default 120)
-
-Validate client-side that `max_dwell_seconds >= min_dwell_seconds` before submitting.
-
-On submit:
-1. `POST /api/campaigns` → get campaign ID
-2. `POST /api/campaigns/:id/activate`
-3. Redirect to `/dashboard/campaigns/:id`
+#### New Campaign (`/dashboard/campaigns/new`)
+- Fields: Website URL, Keyword, Total Visits (1–100k), CTR % (1–100), Mobile % (slider), Min/Max Dwell
+- Client-side validation (URL constructor, range checks, max >= min)
+- On submit: `POST /api/campaigns` → `POST /api/campaigns/:id/activate` → redirect to detail page
 
 #### Campaign Detail (`/dashboard/campaigns/:id`)
-- Show campaign info at top
-- `ProgressBar` component: completed/total with % label
-- Status counts: pending / running / completed / failed
-- Poll `GET /api/campaigns/:id/progress` every 5 seconds while status is `running`
-- Stop polling when status = `completed`
+- Header: keyword, website link, status badge, action button (Start/Pause/Restart)
+- Info grid: visits, CTR, min/max dwell
+- Progress card: `ProgressBar`, 4 status count boxes
+- Polls `GET /api/campaigns/:id/progress` every 5s while `running`, stops when `completed` or `paused`
 
-### Components
+### `CampaignTable` Action Logic
+| Status    | Available Actions          |
+|-----------|---------------------------|
+| pending   | View, Start, Delete        |
+| running   | View, Pause                |
+| paused    | View, Restart, Delete      |
+| completed | View, Restart, Delete      |
 
-#### `StatusBadge`
-```tsx
-// Renders colored pill based on status string
-pending → gray | running → blue (pulsing) | completed → green | failed → red
+### `StatusBadge` Colors
 ```
-
-#### `ProgressBar`
-```tsx
-// Props: completed, total
-// Renders a bar + "580 / 1000 (58%)"
+pending   → gray-700 bg, gray-300 text
+running   → blue-900 bg, blue-300 text, animate-pulse
+paused    → yellow-900 bg, yellow-300 text
+completed → green-900 bg, green-300 text
+failed    → red-900 bg, red-300 text
 ```
 
 ---
 
 ## Environment
-Create `dashboard/.env.local`:
+`dashboard/.env.local`:
 ```
 NEXT_PUBLIC_API_URL=http://localhost:3000
 ```
@@ -126,9 +124,13 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 ## Acceptance Criteria
 - [ ] `npm run dashboard` starts Next.js dev server on port 3001
 - [ ] Unauthenticated users are redirected to `/login`
-- [ ] Login works and stores token in cookie
-- [ ] Campaign list shows all user campaigns with correct status badges
+- [ ] Login/register use dark theme with AutoCTR branding
+- [ ] Overview page shows stats cards + full campaign table
+- [ ] Campaign table shows correct action buttons per status
+- [ ] Start button activates a pending campaign
+- [ ] Pause button pauses a running campaign immediately
+- [ ] Restart button restarts a paused/completed campaign from scratch
+- [ ] Delete works for non-running campaigns
 - [ ] New campaign form validates URL client-side before submitting
-- [ ] Creating + activating a campaign redirects to detail page
-- [ ] Detail page polls for progress and updates every 5 seconds while running
-- [ ] Progress bar reaches 100% and polling stops when campaign completes
+- [ ] Detail page polls every 5 seconds while running, stops when completed/paused
+- [ ] `paused` status renders yellow badge

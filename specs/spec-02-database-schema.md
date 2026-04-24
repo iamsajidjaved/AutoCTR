@@ -22,6 +22,7 @@ src/
     002_create_traffic_summaries.sql
     003_create_traffic_details.sql
     004_create_migrations_table.sql   ← tracks which ran
+    005_add_paused_status.sql         ← adds 'paused' to campaign_status enum
 ```
 
 Add to `package.json` scripts:
@@ -114,6 +115,11 @@ CREATE INDEX IF NOT EXISTS idx_traffic_details_summary
   ON traffic_details(traffic_summary_id);
 ```
 
+#### `005_add_paused_status.sql`
+```sql
+ALTER TYPE campaign_status ADD VALUE IF NOT EXISTS 'paused';
+```
+
 ---
 
 ## Acceptance Criteria
@@ -122,3 +128,4 @@ CREATE INDEX IF NOT EXISTS idx_traffic_details_summary
 - [ ] All four tables exist in Neon: `_migrations`, `users`, `traffic_summaries`, `traffic_details`
 - [ ] ENUMs and FK constraints are in place
 - [ ] The poll index on `traffic_details` exists
+- [ ] `campaign_status` enum includes `paused` value

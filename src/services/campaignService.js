@@ -90,8 +90,8 @@ async function deleteCampaign(id, userId) {
     err.status = 404;
     throw err;
   }
-  if (campaign.status !== 'pending') {
-    const err = new Error('Only pending campaigns can be deleted');
+  if (campaign.status === 'running') {
+    const err = new Error('Cannot delete a running campaign — pause it first');
     err.status = 409;
     throw err;
   }
@@ -139,4 +139,62 @@ async function activateCampaign(id, userId) {
   return { campaign: updatedCampaign, visitsScheduled: visits.length };
 }
 
-module.exports = { createCampaign, listCampaigns, getCampaign, deleteCampaign, activateCampaign };
+async function pauseCampaign(id, userId) {
+  const campaign = await campaignModel.findByIdAndUser(id, userId);
+  if (!campaign) {
+    const err = new Error('Campaign not found');
+    err.status = 404;
+    throw err;
+  }
+  if (campaign.status !== 'running') {
+    const err = new Error('Only running campaigns can be paused');
+    err.status = 409;
+    throw err;
+  }
+  await campaignModel.pauseAndCancelJobs(id);
+  return await campaignModel.findById(id);
+}
+
+async function restartCampaign(id, userId) {
+  const campaign = await campaignModel.findByIdAndUser(id, userId);
+  if (!campaign) {
+    const err = new Error('Campaign not found');
+    err.status = 404;
+    throw err;
+  }
+  if (!['paused', 'completed'].includes(campaign.status)) {
+    const err = new Error('Only paused or completed campaigns can be restarted');
+    err.status = 409;
+    throw err;
+  }
+
+  const visits = trafficDistributionService.generateVisits(campaign);
+  const detailRows = visits.map(v => ({
+    trafficSummaryId: campaign.id,
+    scheduledAt: v.scheduledAt,
+    type: v.type,
+    device: v.device,
+  }));
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM traffic_details WHERE traffic_summary_id = $1`, [id]);
+    await trafficDetailModel.bulkCreate(detailRows, client);
+    await client.query(
+      `UPDATE traffic_summaries SET status = 'running', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const updatedCampaign = await campaignModel.findById(id);
+  return { campaign: updatedCampaign, visitsScheduled: visits.length };
+}
+
+module.exports = { createCampaign, listCampaigns, getCampaign, deleteCampaign, activateCampaign, pauseCampaign, restartCampaign };

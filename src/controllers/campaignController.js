@@ -62,4 +62,24 @@ async function progress(req, res, next) {
   }
 }
 
-module.exports = { create, list, getOne, remove, activate, progress };
+async function pause(req, res, next) {
+  try {
+    const campaign = await campaignService.pauseCampaign(req.params.id, req.user.id);
+    res.json(campaign);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+}
+
+async function restart(req, res, next) {
+  try {
+    const result = await campaignService.restartCampaign(req.params.id, req.user.id);
+    res.json(result);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+}
+
+module.exports = { create, list, getOne, remove, activate, progress, pause, restart };

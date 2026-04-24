@@ -4,14 +4,15 @@ interface StatusBadgeProps {
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const styles: Record<string, string> = {
-    pending: 'bg-gray-100 text-gray-700',
-    running: 'bg-blue-100 text-blue-700 animate-pulse',
-    completed: 'bg-green-100 text-green-700',
-    failed: 'bg-red-100 text-red-700',
+    pending: 'bg-gray-700 text-gray-300',
+    running: 'bg-blue-900 text-blue-300 animate-pulse',
+    completed: 'bg-green-900 text-green-300',
+    failed: 'bg-red-900 text-red-300',
+    paused: 'bg-yellow-900 text-yellow-300',
   };
-  const cls = styles[status] ?? 'bg-gray-100 text-gray-700';
+  const cls = styles[status] ?? 'bg-gray-700 text-gray-300';
   return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cls}`}>
+    <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${cls}`}>
       {status}
     </span>
   );

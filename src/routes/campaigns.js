@@ -12,5 +12,7 @@ router.get('/:id', campaignController.getOne);
 router.get('/:id/progress', campaignController.progress);
 router.delete('/:id', campaignController.remove);
 router.post('/:id/activate', campaignController.activate);
+router.post('/:id/pause', campaignController.pause);
+router.post('/:id/restart', campaignController.restart);
 
 module.exports = router;

@@ -30,6 +30,7 @@ async function findPendingDue(limit) {
       FROM traffic_details td
       JOIN traffic_summaries ts ON ts.id = td.traffic_summary_id
       WHERE td.status = 'pending' AND td.scheduled_at <= NOW()
+        AND ts.status = 'running'
       ORDER BY td.scheduled_at ASC
       LIMIT $1
       FOR UPDATE OF td SKIP LOCKED

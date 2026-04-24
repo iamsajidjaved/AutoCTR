@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { getToken } from '@/lib/auth';
 import api from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
-import StatCard from '@/components/StatCard';
 import CampaignTable from '@/components/CampaignTable';
 
 interface Campaign {
@@ -19,10 +18,11 @@ interface Campaign {
   created_at: string;
 }
 
-export default function DashboardPage() {
+export default function CampaignsPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
 
   const fetchCampaigns = useCallback(async () => {
     try {
@@ -38,13 +38,8 @@ export default function DashboardPage() {
     fetchCampaigns().finally(() => setLoading(false));
   }, [fetchCampaigns, router]);
 
-  const running = campaigns.filter((c) => c.status === 'running').length;
-  const completed = campaigns.filter((c) => c.status === 'completed').length;
-  const paused = campaigns.filter((c) => c.status === 'paused').length;
-  const totalVisits = campaigns.reduce((sum, c) => sum + c.required_visits, 0);
-  const avgCtr = campaigns.length
-    ? Math.round(campaigns.reduce((sum, c) => sum + c.ctr, 0) / campaigns.length)
-    : 0;
+  const statuses = ['all', 'pending', 'running', 'paused', 'completed'];
+  const filtered = filter === 'all' ? campaigns : campaigns.filter((c) => c.status === filter);
 
   return (
     <div className="flex min-h-screen">
@@ -52,8 +47,8 @@ export default function DashboardPage() {
       <main className="flex-1 px-8 py-7 overflow-auto">
         <div className="flex justify-between items-center mb-7">
           <div>
-            <h1 className="text-2xl font-bold text-white">Overview</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Monitor and manage all your CTR campaigns</p>
+            <h1 className="text-2xl font-bold text-white">Campaigns</h1>
+            <p className="text-sm text-gray-500 mt-0.5">{campaigns.length} total campaigns</p>
           </div>
           <Link
             href="/dashboard/campaigns/new"
@@ -63,24 +58,24 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Total Campaigns" value={campaigns.length} />
-          <StatCard label="Active" value={running} color="blue" sub="currently running" />
-          <StatCard label="Completed" value={completed} color="green" />
-          <StatCard label="Paused" value={paused} color="yellow" />
-        </div>
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <StatCard label="Total Visits Scheduled" value={totalVisits.toLocaleString()} color="default" />
-          <StatCard label="Avg CTR" value={`${avgCtr}%`} color="blue" />
-        </div>
-
-        {/* Campaign table */}
-        <div className="mb-4 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-white">All Campaigns</h2>
+        {/* Filter tabs */}
+        <div className="flex gap-2 mb-5">
+          {statuses.map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
+                filter === s
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'
+              }`}
+            >
+              {s} {s === 'all' ? `(${campaigns.length})` : `(${campaigns.filter((c) => c.status === s).length})`}
+            </button>
+          ))}
           <button
             onClick={fetchCampaigns}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            className="ml-auto text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 transition-colors"
           >
             ↻ Refresh
           </button>
@@ -89,7 +84,7 @@ export default function DashboardPage() {
         {loading ? (
           <p className="text-gray-500 text-sm">Loading campaigns...</p>
         ) : (
-          <CampaignTable campaigns={campaigns} onRefresh={fetchCampaigns} />
+          <CampaignTable campaigns={filtered} onRefresh={fetchCampaigns} />
         )}
       </main>
     </div>

@@ -90,42 +90,42 @@ export default function NewCampaignForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {error && (
-        <div className="bg-red-50 border border-red-300 text-red-700 px-4 py-3 rounded text-sm">
+        <div className="bg-red-950 border border-red-800 text-red-300 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Website URL</label>
+        <label className="block text-sm font-medium text-gray-300 mb-1.5">Website URL</label>
         <input
           type="text"
           name="website"
           value={form.website}
           onChange={handleChange}
           placeholder="https://example.com"
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
           required
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Keyword</label>
+        <label className="block text-sm font-medium text-gray-300 mb-1.5">Keyword</label>
         <input
           type="text"
           name="keyword"
           value={form.keyword}
           onChange={handleChange}
           placeholder="your target keyword"
-          className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
           required
         />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Total Visits (1–100,000)</label>
+          <label className="block text-sm font-medium text-gray-300 mb-1.5">Total Visits</label>
           <input
             type="number"
             name="total_visits"
@@ -133,11 +133,12 @@ export default function NewCampaignForm() {
             onChange={handleChange}
             min={1}
             max={100000}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <p className="text-xs text-gray-600 mt-1">1 – 100,000</p>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">CTR % (1–100)</label>
+          <label className="block text-sm font-medium text-gray-300 mb-1.5">CTR %</label>
           <input
             type="number"
             name="ctr"
@@ -145,14 +146,15 @@ export default function NewCampaignForm() {
             onChange={handleChange}
             min={1}
             max={100}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <p className="text-xs text-gray-600 mt-1">1 – 100%</p>
         </div>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Mobile % ({form.mobile_desktop_ratio}%)
+        <label className="block text-sm font-medium text-gray-300 mb-2">
+          Mobile Traffic — <span className="text-blue-400">{form.mobile_desktop_ratio}%</span>
         </label>
         <input
           type="range"
@@ -161,13 +163,17 @@ export default function NewCampaignForm() {
           onChange={handleChange}
           min={0}
           max={100}
-          className="w-full"
+          className="w-full accent-blue-500"
         />
+        <div className="flex justify-between text-xs text-gray-600 mt-1">
+          <span>0% (All Desktop)</span>
+          <span>100% (All Mobile)</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Min Dwell (seconds)</label>
+          <label className="block text-sm font-medium text-gray-300 mb-1.5">Min Dwell Time (s)</label>
           <input
             type="number"
             name="min_dwell_seconds"
@@ -175,11 +181,11 @@ export default function NewCampaignForm() {
             onChange={handleChange}
             min={10}
             max={1800}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Max Dwell (seconds)</label>
+          <label className="block text-sm font-medium text-gray-300 mb-1.5">Max Dwell Time (s)</label>
           <input
             type="number"
             name="max_dwell_seconds"
@@ -187,7 +193,7 @@ export default function NewCampaignForm() {
             onChange={handleChange}
             min={form.min_dwell_seconds}
             max={1800}
-            className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
@@ -195,9 +201,9 @@ export default function NewCampaignForm() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium"
+        className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors text-sm font-semibold"
       >
-        {loading ? 'Creating...' : 'Create & Activate Campaign'}
+        {loading ? 'Creating Campaign...' : 'Create & Activate Campaign'}
       </button>
     </form>
   );
