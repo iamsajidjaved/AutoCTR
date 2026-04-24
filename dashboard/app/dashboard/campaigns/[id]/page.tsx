@@ -44,19 +44,36 @@ export default function CampaignDetailPage() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [pageError, setPageError] = useState('');
 
   const fetchProgress = useCallback(async () => {
     try {
       const res = await api.get(`/api/campaigns/${id}/progress`);
       setCampaign(res.data.campaign);
       setProgress(res.data.progress);
-    } catch {
-      router.replace('/login');
+      setPageError('');
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined;
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+          : undefined;
+      if (status === 404) {
+        setPageError('Campaign not found.');
+      } else if (status !== 401) {
+        setPageError(msg || 'Failed to load campaign. Is the API server running?');
+      }
     }
-  }, [id, router]);
+  }, [id]);
 
   useEffect(() => {
-    if (!getToken()) { router.replace('/login'); return; }
+    if (!getToken()) {
+      router.replace('/login');
+      return;
+    }
     fetchProgress().finally(() => setLoading(false));
   }, [fetchProgress, router]);
 
@@ -82,11 +99,46 @@ export default function CampaignDetailPage() {
     }
   }
 
+  async function doDelete() {
+    if (!confirm('Delete this campaign? All visit data will be permanently removed.')) return;
+    setActionLoading(true);
+    try {
+      await api.delete(`/api/campaigns/${id}`);
+      router.replace('/dashboard/campaigns');
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
+          : undefined;
+      alert(msg || 'Delete failed');
+      setActionLoading(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen">
         <Sidebar />
         <main className="flex-1 px-8 py-7 text-gray-500">Loading...</main>
+      </div>
+    );
+  }
+
+  if (pageError) {
+    return (
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <main className="flex-1 px-8 py-7">
+          <Link
+            href="/dashboard/campaigns"
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-5 inline-block"
+          >
+            ← Back to Campaigns
+          </Link>
+          <div className="bg-red-950 border border-red-800 text-red-300 px-4 py-3 rounded-lg text-sm mt-4">
+            {pageError}
+          </div>
+        </main>
       </div>
     );
   }
@@ -104,8 +156,11 @@ export default function CampaignDetailPage() {
     <div className="flex min-h-screen">
       <Sidebar />
       <main className="flex-1 px-8 py-7 overflow-auto">
-        <Link href="/dashboard" className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-5 inline-block">
-          ← Back to Overview
+        <Link
+          href="/dashboard/campaigns"
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-5 inline-block"
+        >
+          ← Back to Campaigns
         </Link>
 
         {/* Header card */}
@@ -122,9 +177,8 @@ export default function CampaignDetailPage() {
                 {campaign.website}
               </a>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <StatusBadge status={campaign.status} />
-              {/* Action buttons */}
               {campaign.status === 'pending' && (
                 <button
                   onClick={() => doAction('activate')}
@@ -152,8 +206,18 @@ export default function CampaignDetailPage() {
                   {actionLoading ? '...' : 'Restart'}
                 </button>
               )}
+              {campaign.status !== 'running' && (
+                <button
+                  onClick={doDelete}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 text-sm bg-red-900 text-red-300 rounded-lg hover:bg-red-800 disabled:opacity-40 transition-colors"
+                >
+                  {actionLoading ? '...' : 'Delete'}
+                </button>
+              )}
             </div>
           </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="bg-gray-800 rounded-lg p-3">
               <p className="text-gray-500 text-xs mb-0.5">Total Visits</p>
@@ -165,7 +229,9 @@ export default function CampaignDetailPage() {
             </div>
             <div className="bg-gray-800 rounded-lg p-3">
               <p className="text-gray-500 text-xs mb-0.5">Duration</p>
-              <p className="text-white font-semibold">{campaign.campaign_duration_days} day{campaign.campaign_duration_days !== 1 ? 's' : ''}</p>
+              <p className="text-white font-semibold">
+                {campaign.campaign_duration_days} day{campaign.campaign_duration_days !== 1 ? 's' : ''}
+              </p>
             </div>
             <div className="bg-gray-800 rounded-lg p-3">
               <p className="text-gray-500 text-xs mb-0.5">Mobile Traffic</p>
@@ -224,7 +290,8 @@ export default function CampaignDetailPage() {
             </div>
             {progress.avgDwellSeconds !== null && (
               <p className="text-sm text-gray-500 mt-4">
-                Avg dwell time: <span className="text-white font-medium">{progress.avgDwellSeconds}s</span>
+                Avg dwell time:{' '}
+                <span className="text-white font-medium">{progress.avgDwellSeconds}s</span>
               </p>
             )}
             {campaign.status === 'running' && (
@@ -234,7 +301,9 @@ export default function CampaignDetailPage() {
               <p className="text-xs text-green-500 mt-3 font-medium">✓ Campaign completed</p>
             )}
             {campaign.status === 'paused' && (
-              <p className="text-xs text-yellow-500 mt-3 font-medium">⏸ Campaign paused — click Restart to run again from scratch</p>
+              <p className="text-xs text-yellow-500 mt-3 font-medium">
+                ⏸ Campaign paused — click Restart to run again from scratch
+              </p>
             )}
           </div>
         )}
@@ -242,3 +311,5 @@ export default function CampaignDetailPage() {
     </div>
   );
 }
+
+

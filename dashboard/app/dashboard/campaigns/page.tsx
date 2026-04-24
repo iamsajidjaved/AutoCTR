@@ -24,14 +24,23 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
 
+  const [error, setError] = useState('');
+
   const fetchCampaigns = useCallback(async () => {
     try {
       const res = await api.get('/api/campaigns');
       setCampaigns(res.data);
-    } catch {
-      router.replace('/login');
+      setError('');
+    } catch (err: unknown) {
+      const status =
+        err && typeof err === 'object' && 'response' in err
+          ? (err as { response?: { status?: number } }).response?.status
+          : undefined;
+      if (!status || status !== 401) {
+        setError('Failed to load campaigns. Is the API server running?');
+      }
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (!getToken()) { router.replace('/login'); return; }
@@ -83,6 +92,10 @@ export default function CampaignsPage() {
 
         {loading ? (
           <p className="text-gray-500 text-sm">Loading campaigns...</p>
+        ) : error ? (
+          <div className="bg-red-950 border border-red-800 text-red-300 px-4 py-3 rounded-lg text-sm">
+            {error}
+          </div>
         ) : (
           <CampaignTable campaigns={filtered} onRefresh={fetchCampaigns} />
         )}
