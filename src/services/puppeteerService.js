@@ -200,9 +200,13 @@ async function runJob(job) {
     }
 
     if (job.type === 'impression') {
-      await humanBehavior.randomScroll(page);
-      await humanBehavior.randomDelay(3000, 8000);
-      return { success: true, actualDwellSeconds: null, proxyHost: proxy.host };
+      // Impression: search keyword + interact with the SERP only.
+      // Never click the target — the goal is to register a search-results
+      // view (an "impression") without a click event for the target site.
+      const targetDomain = new URL(job.website).hostname;
+      const dwellMs = randomBetween(8000, 25000);
+      const result = await humanBehavior.browseSerp(page, targetDomain, dwellMs);
+      return { success: true, actualDwellSeconds: result.elapsedSeconds, proxyHost: proxy.host };
     }
 
     const targetDomain = new URL(job.website).hostname;

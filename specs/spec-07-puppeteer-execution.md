@@ -86,6 +86,18 @@ clickInternalLink(page, targetDomain)
   → if none found, return false (caller continues without navigating)
   → after click: wait for load, return true
 
+browseSerp(page, targetDomain, dwellMs)
+  → SERP-only interaction loop used by impression visits
+  → weighted actions over the dwell window:
+      55% smooth scroll a small distance through the results
+      20% hover (mouse-move only, never click) over a non-target organic result
+      13% expand a "People also ask" question if present (in-place expand, no navigation)
+      remainder: idle reading pause + small mouse jiggle
+  → never clicks any link; explicitly skips any <a> whose href contains targetDomain
+     when picking a hover candidate, so no impression accidentally registers a click
+  → optional final smooth-scroll back to top (40% chance)
+  → returns { elapsedSeconds }
+
 waitForNetworkIdle(page)
   → wait until no more than 0 in-flight network requests for 500ms (max wait 10s)
 ```
@@ -114,10 +126,12 @@ async executeJob(job)
   12. If CAPTCHA was solved (postCheck.solved === true): waitForSelector('#search', timeout 20s) + randomDelay
       → Google auto-submits the CAPTCHA form and navigates back to the SERP; must wait before reading results
   13. If job.type === 'impression':
-        // Impression: view SERP only — scroll, dwell, then close. Site not clicked.
-        humanBehavior.randomScroll(page)
-        humanBehavior.randomDelay(3000, 8000)
-        return { success: true, actualDwellSeconds: null }
+        // Impression: view + interact with the SERP only. Target site is never clicked.
+        // Dwell is decoupled from job.min/max_dwell_seconds (those govern on-site time)
+        // and uses a SERP-appropriate window of 8–25 seconds.
+        const dwellMs = randomBetween(8000, 25000)
+        const result = await humanBehavior.browseSerp(page, targetDomain, dwellMs)
+        return { success: true, actualDwellSeconds: result.elapsedSeconds }
   14. If job.type === 'click':
         // Click/Visit: find and click target site in SERP, then interact on-site.
         a. findResultCoords(page, targetDomain) → { x, y } or null — see helper below
@@ -240,9 +254,10 @@ await Promise.all([
 ---
 
 ## Acceptance Criteria
-- [ ] Impression jobs: search Google, solve CAPTCHA if present, scroll SERP, close browser — target site is never clicked, `actualDwellSeconds: null`
+- [ ] Impression jobs: search Google, solve CAPTCHA if present, run `browseSerp` (scroll, hover non-target results, optionally expand "People also ask"), close browser — target site is **never** clicked; `actualDwellSeconds` reports the SERP dwell window (~8–25s)
 - [ ] Click/Visit jobs: search Google, solve CAPTCHA if present, click target URL in SERP, run on-site behavior loop, return `actualDwellSeconds`
-- [ ] `actualDwellSeconds` falls within `[min_dwell_seconds, max_dwell_seconds + small_overhead]`
+- [ ] `actualDwellSeconds` for clicks falls within `[min_dwell_seconds, max_dwell_seconds + small_overhead]`
+- [ ] `browseSerp` never picks the target domain as a hover candidate (no accidental click on impression visits)
 - [ ] On-site loop performs scroll, internal navigation, and text selection during dwell
 - [ ] Internal navigation never leaves the target domain (verified by checking `page.url()` after each nav)
 - [ ] Any accidental external redirect triggers an immediate `goBack()`
