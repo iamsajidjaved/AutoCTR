@@ -107,76 +107,27 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ---
 
-## `src/providers/shoplikeProxy.js`
+### `src/providers/shoplikeProxy.js`
 
-Strategy per job: **call `getNewProxy` first; if the rotation window hasn't elapsed (API returns "must wait"), call `getCurrentProxy` to get the already-assigned proxy.**
+Strategy: maintains a **round-robin key pool** across all concurrent jobs in the process. Each call to `getNewProxy()` picks the next key from `SHOPLIKE_API_KEYS`, rotating through the full pool. This ensures concurrent jobs use different keys and therefore receive different IPs from the API.
 
 ```js
-const http = require('http');
-const https = require('https');
+// keyIndex rotates per-process: job 1 → key[0], job 2 → key[1], job 3 → key[2], etc.
+let keyIndex = 0;
 
-const BASE = 'http://proxy.shoplike.vn/Api';
+function nextKey() {
+  const keys = config.SHOPLIKE_API_KEYS;  // parsed from comma-separated env var
+  if (!keys || keys.length === 0) throw new Error('No SHOPLIKE_API_KEYS configured');
+  const key = keys[keyIndex % keys.length];
+  keyIndex = (keyIndex + 1) % keys.length;
+  return key;
+}
 
 async function getNewProxy() {
-  const key = process.env.SHOPLIKE_API_KEY;
-  if (!key) throw new Error('SHOPLIKE_API_KEY not set');
-
-  const body = await httpGetJson(`${BASE}/getNewProxy?access_token=${key}`);
-
-  if (body.status === 'success') {
-    return parseData(body.data);
-  }
-
-  // "Must wait" — a proxy is already assigned, rotation window hasn't elapsed
-  if (body.nextChange !== undefined) {
-    return getCurrentProxy();
-  }
-
-  throw new Error(`ShopLike getNewProxy error: ${body.mess || JSON.stringify(body)}`);
+  const key = nextKey();
+  // call getNewProxy with this key
+  // if "must wait", call getCurrentProxy(key) as fallback
 }
-
-async function getCurrentProxy() {
-  const key = process.env.SHOPLIKE_API_KEY;
-  if (!key) throw new Error('SHOPLIKE_API_KEY not set');
-
-  const body = await httpGetJson(`${BASE}/getCurrentProxy?access_token=${key}`);
-
-  if (body.status === 'success') {
-    return parseData(body.data);
-  }
-
-  throw new Error(`ShopLike getCurrentProxy error: ${body.mess || JSON.stringify(body)}`);
-}
-
-function parseData(data) {
-  const [host, portStr] = data.proxy.split(':');
-  const port = parseInt(portStr, 10);
-  let username = '';
-  let password = '';
-  if (data.auth && data.auth.includes(':')) {
-    [username, password] = data.auth.split(':');
-  }
-  const url = username
-    ? `http://${username}:${password}@${host}:${port}`
-    : `http://${host}:${port}`;
-  return { host, port, username, password, url };
-}
-
-function httpGetJson(url) {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      let raw = '';
-      res.on('data', (chunk) => { raw += chunk; });
-      res.on('end', () => {
-        try { resolve(JSON.parse(raw)); }
-        catch (e) { reject(new Error(`ShopLike non-JSON response: ${raw}`)); }
-      });
-    }).on('error', reject);
-  });
-}
-
-module.exports = { getNewProxy };
 ```
 
 ---
@@ -269,10 +220,14 @@ await updateStatus(job.id, 'completed', {
 
 ## Environment Variables
 
-Add to `.env` and `.env.example`:
+Add to `.env`:
 ```
-SHOPLIKE_API_KEY=your_shoplike_access_token_here
+# Comma-separated list of Shoplike API keys (one key = one IP at a time)
+# Add more keys to allow more simultaneous unique IPs across concurrent workers
+SHOPLIKE_API_KEYS=key1,key2,key3,...
 ```
+
+Multiple keys enable parallel unique IPs: with 17 keys and 3 concurrent jobs per worker instance, each job gets a distinct IP. Round-robin rotation is used per process (`keyIndex` increments on each call).
 
 ---
 
@@ -294,10 +249,12 @@ No changes to Puppeteer code are needed.
 
 ## Acceptance Criteria
 - [ ] `proxyService.getProxy()` calls `getNewProxy` on the Shop Like provider first
-- [ ] When `getNewProxy` returns a "must wait" error, `getCurrentProxy` is called as fallback
+- [ ] When `getNewProxy` returns a "must wait" error, `getCurrentProxy` is called as fallback for the same key
+- [ ] Multiple concurrent jobs use different keys from the pool (round-robin rotation)
 - [ ] All Puppeteer sessions launch with `--proxy-server=host:port`
 - [ ] `page.authenticate()` is called when `username` is non-empty
 - [ ] Job `ip` field in DB stores the proxy host after completion
 - [ ] If all providers fail, job is marked `failed` with `error_message = 'proxy_unavailable'`
 - [ ] Browser never launches without a proxy configured
 - [ ] Adding a second provider requires only a new file + one array entry in `proxyService.js`
+- [ ] Removing a key from `SHOPLIKE_API_KEYS` takes effect on next worker restart (no code change needed)

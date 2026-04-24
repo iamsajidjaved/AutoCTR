@@ -1,11 +1,22 @@
 const http = require('http');
 const https = require('https');
+const config = require('../config');
 
 const BASE = 'http://proxy.shoplike.vn/Api';
 
+// Round-robin index — rotates per process so concurrent jobs use different keys
+let keyIndex = 0;
+
+function nextKey() {
+  const keys = config.SHOPLIKE_API_KEYS;
+  if (!keys || keys.length === 0) throw new Error('No SHOPLIKE_API_KEYS configured');
+  const key = keys[keyIndex % keys.length];
+  keyIndex = (keyIndex + 1) % keys.length;
+  return key;
+}
+
 async function getNewProxy() {
-  const key = process.env.SHOPLIKE_API_KEY;
-  if (!key) throw new Error('SHOPLIKE_API_KEY not set');
+  const key = nextKey();
 
   const body = await httpGetJson(`${BASE}/getNewProxy?access_token=${key}`);
 
@@ -13,17 +24,15 @@ async function getNewProxy() {
     return parseData(body.data);
   }
 
+  // "Must wait" — rotation window hasn't elapsed; fall back to current proxy for this key
   if (body.nextChange !== undefined) {
-    return getCurrentProxy();
+    return getCurrentProxy(key);
   }
 
   throw new Error(`ShopLike getNewProxy error: ${body.mess || JSON.stringify(body)}`);
 }
 
-async function getCurrentProxy() {
-  const key = process.env.SHOPLIKE_API_KEY;
-  if (!key) throw new Error('SHOPLIKE_API_KEY not set');
-
+async function getCurrentProxy(key) {
   const body = await httpGetJson(`${BASE}/getCurrentProxy?access_token=${key}`);
 
   if (body.status === 'success') {

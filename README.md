@@ -155,8 +155,10 @@ PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 
-# Proxy provider
-PROXY_API_KEY=your-proxy-api-key
+# Shoplike rotating proxy — comma-separated list of API keys
+# Each key = one independent rotating IP slot
+# More keys = more simultaneous unique IPs across concurrent workers
+SHOPLIKE_API_KEYS=key1,key2,key3,...
 
 # CAPTCHA extension path (relative to project root)
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
@@ -419,7 +421,18 @@ Proxies are assigned at **execution time**, never at campaign creation.
 
 The proxy service iterates through registered providers in order, falling back to the next if one fails. Currently one provider is integrated:
 
-- **Shoplike** (`src/providers/shoplikeProxy.js`) — calls the Shoplike rotating proxy API using `PROXY_API_KEY`
+- **Shoplike** (`src/providers/shoplikeProxy.js`) — calls the Shoplike rotating proxy API
+
+### Multi-Key Pool (IP Diversity)
+
+Each Shoplike API key controls one rotating IP slot independently. With multiple keys, concurrent jobs use **different keys → different IPs** simultaneously, making traffic look more natural to Google.
+
+Configure all your keys as a comma-separated list:
+```env
+SHOPLIKE_API_KEYS=key1,key2,key3,...
+```
+
+The provider uses **round-robin rotation** per worker process: job 1 gets key[0], job 2 gets key[1], etc. With 17 keys and 3 concurrent jobs per worker instance, every in-flight visit uses a unique IP. Across multiple PM2 worker instances, diversity is even greater.
 
 **Adding a new provider:**
 
