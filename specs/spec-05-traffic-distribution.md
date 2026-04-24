@@ -9,6 +9,12 @@
 ## Goal
 When a campaign is activated, generate all `traffic_details` rows — one per visit, with correct type/device split and placeholder timestamps. After this spec, calling `POST /api/campaigns/:id/activate` populates `traffic_details` and moves the campaign to `running`.
 
+### Visit Types
+- **impression** — worker searches the keyword, views/scrolls the SERP, closes browser. Target site appears in results but is never clicked.
+- **click** — worker searches the keyword, clicks the target site in the SERP, and interacts with it for the configured dwell period.
+
+The `ctr` field (click-through rate %) controls the ratio of clicks to impressions. `ctr=20` means 20% of visits are clicks, 80% are impressions.
+
 ---
 
 ## Files to Create/Modify

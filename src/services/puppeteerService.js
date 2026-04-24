@@ -75,6 +75,19 @@ async function onSiteBehavior(page, job) {
   return { elapsedSeconds };
 }
 
+// Returns the <a> element that Google tracks as a CTR click for targetDomain.
+// Prioritises links that wrap an <h3> (the visible title) since those carry
+// Google's data-ved tracking attributes and fire the CTR event listeners.
+async function findResultLink(page, targetDomain) {
+  const links = await page.$$(`#search a[href*="${targetDomain}"]`);
+  for (const link of links) {
+    const hasH3 = await link.evaluate(el => !!el.querySelector('h3'));
+    if (hasH3) return link;
+  }
+  // Fallback: any direct-domain link in the results block
+  return links.length > 0 ? links[0] : null;
+}
+
 async function runJob(job) {
   const profile = deviceProfiles.getProfile(job.device);
 
@@ -132,6 +145,13 @@ async function runJob(job) {
       return { success: false, error: 'captcha_timeout', actualDwellSeconds: null };
     }
 
+    // If a CAPTCHA was present and solved, Google auto-submits and navigates back
+    // to the SERP. Wait for #search to finish loading before proceeding.
+    if (postCheck.solved) {
+      await page.waitForSelector('#search', { timeout: 20000 });
+      await humanBehavior.randomDelay(1000, 2500);
+    }
+
     if (job.type === 'impression') {
       await humanBehavior.randomScroll(page);
       await humanBehavior.randomDelay(3000, 8000);
@@ -139,15 +159,24 @@ async function runJob(job) {
     }
 
     const targetDomain = new URL(job.website).hostname;
-    const links = await page.$$(`#search a[href*="${targetDomain}"]`);
-    if (links.length === 0) {
+
+    // Find the main organic result link: the <a> that wraps the <h3> title.
+    // Google fires its CTR tracking events on this element, so clicking anything
+    // else (breadcrumb, display URL) won't register as a click in Search Console.
+    const resultLink = await findResultLink(page, targetDomain);
+    if (!resultLink) {
       return { success: false, error: 'not_in_serp', actualDwellSeconds: null };
     }
 
+    // Scroll result into view and hover before clicking — mimics real user behaviour
+    // and ensures Google's mousedown/click handlers fire on the visible element.
+    await resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    await humanBehavior.randomDelay(500, 1500);
     await humanBehavior.randomMouseMove(page);
+
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }),
-      links[0].click(),
+      resultLink.click(),
     ]);
 
     const captchaOnTarget = await isCaptchaPresent(page);

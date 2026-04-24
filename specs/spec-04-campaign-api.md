@@ -195,4 +195,43 @@ Response:
 - [ ] `DELETE /api/campaigns/:id` returns 409 for `running` campaigns
 - [ ] `POST /api/campaigns/:id/pause` sets status to `paused` and marks all pending/running visits as `failed`
 - [ ] `POST /api/campaigns/:id/restart` deletes old visits, regenerates, sets status to `running`
+- [ ] `GET /api/analytics/overview` returns aggregated dashboard metrics for the user
 - [ ] All endpoints return 401 without valid token
+
+---
+
+## Analytics Endpoint (added with dashboard redesign)
+
+### `GET /api/analytics/overview`
+Returns aggregated KPIs and time-series data for the authenticated user's dashboard. All time bucketing uses the `Asia/Dubai` timezone to match the worker scheduler.
+
+**Files:**
+```
+src/services/analyticsService.js     ← getOverview(userId)
+src/controllers/analyticsController.js
+src/routes/analytics.js              ← mounted at /api/analytics
+```
+
+**Response shape:**
+```json
+{
+  "campaignCounts":   [{ "status": "running",   "count": 4 }, ...],
+  "visitCounts":      [{ "status": "completed", "type": "click", "device": "mobile", "count": 120 }, ...],
+  "avgDwellSeconds":  43.2,
+  "dailySeries":      [{ "day": "2026-04-10T00:00:00.000Z", "impressions": 50, "clicks": 7, "completed": 57, "failed": 2 }, ... 14 entries],
+  "heatmap":          [{ "dow": 1, "hour": 14, "count": 8 }, ...],
+  "topCampaigns":     [{ "id": "...", "keyword": "...", "website": "...", "status": "running", "required_visits": 1000, "completed": 320, "failed": 4 }, ... 6 entries],
+  "recentVisits":     [{ "id": "...", "type": "click", "device": "mobile", "status": "completed", "ip": "1.2.3.4", "completed_at": "...", "scheduled_at": "...", "keyword": "...", "campaign_id": "..." }, ... 10 entries],
+  "proxyDistribution":[{ "ip": "1.2.3.4", "count": 18 }, ... top 8]
+}
+```
+
+**SQL aggregations (all scoped by `WHERE ts.user_id = $1`):**
+- `campaignCounts`: `SELECT status, COUNT(*) FROM traffic_summaries GROUP BY status`
+- `visitCounts`: `SELECT td.status, td.type, td.device, COUNT(*) FROM traffic_details td JOIN traffic_summaries ts GROUP BY status, type, device`
+- `avgDwellSeconds`: `AVG(dwell_seconds) WHERE status = 'completed'`
+- `dailySeries`: 14-day series from `date_trunc('day', completed_at AT TIME ZONE 'Asia/Dubai')` with completed/failed/clicks/impressions counts
+- `heatmap`: last 7 days, `EXTRACT(DOW ...)`, `EXTRACT(HOUR ...)` on `completed_at AT TIME ZONE 'Asia/Dubai'`, completed visits only
+- `topCampaigns`: top 6 by completed-visit count
+- `recentVisits`: last 10 completed/failed visits joined with parent campaign keyword
+- `proxyDistribution`: top 8 IPs by completed-visit count

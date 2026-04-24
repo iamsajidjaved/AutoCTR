@@ -153,3 +153,122 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 - [ ] New campaign form validates URL client-side before submitting
 - [ ] Detail page polls every 5 seconds while running, stops when completed/paused
 - [ ] `paused` status renders yellow badge
+
+---
+
+## Enterprise Redesign (Metronic-inspired)
+
+The dashboard was overhauled to a Metronic-style admin shell with a full design system, light/dark themes, and rich data visualizations powered by Recharts.
+
+### New Dependencies
+```
+dashboard/package.json
+  recharts        ^2.15.0
+  lucide-react    latest
+  clsx            latest
+```
+Install with `npm install --legacy-peer-deps` (React 19 peer mismatch with Recharts 2.x).
+
+### File Structure (post-redesign)
+```
+dashboard/
+  app/
+    layout.tsx                     ← inline theme bootstrap script (no FOUC), Inter font, ThemeProvider wrapper
+    globals.css                    ← CSS variable tokens (:root + .dark) + .card/.input/.btn-* utility classes
+    page.tsx                       ← redirect-only
+    login/page.tsx                 ← redesigned, uses .card/.input/.btn-primary + ThemeToggle
+    register/page.tsx              ← same pattern as login
+    dashboard/
+      page.tsx                     ← Overview: KPI row + 7 charts + recent visits widget + campaign table
+      campaigns/
+        page.tsx                   ← list with filter tabs, wrapped in AppShell
+        new/page.tsx               ← AppShell wrapper around NewCampaignForm
+        [id]/page.tsx              ← AppShell + Card-based detail view
+  components/
+    AppShell.tsx                   ← auth guard + Sidebar + Topbar + <main>
+    Sidebar.tsx                    ← collapsible (w-60 ↔ w-[68px]), section headings, lucide icons
+    Topbar.tsx                     ← sticky, title/subtitle, search box, notification bell, ThemeToggle, actions slot
+    ThemeProvider.tsx              ← context: theme/toggle/setTheme; persists to localStorage('autoctr-theme')
+    ThemeToggle.tsx                ← Sun/Moon icon button
+    Card.tsx                       ← title/subtitle/actions/noPadding/className/bodyClassName props
+    KpiCard.tsx                    ← label/value/delta/deltaLabel/icon/accent/spark/hint
+    StatusBadge.tsx                ← redesigned with semantic tokens + dot indicator (sizes sm/md)
+    ProgressBar.tsx                ← uses bg-surface-2 track + bg-brand fill
+    CampaignTable.tsx              ← icon-only action buttons (lucide), semantic tokens
+    VisitsTable.tsx                ← restyled with .card + chevron expand
+    NewCampaignForm.tsx            ← three .card sections: Target / Schedule / Behavior
+    charts/
+      Sparkline.tsx                ← line-only Recharts mini chart for KpiCard
+      AreaTrend.tsx                ← multi-series area with linear gradients
+      StackedBars.tsx              ← stacked bar chart
+      LineTrend.tsx                ← single-series line w/ optional yFormatter
+      Donut.tsx                    ← Pie innerRadius="62%", center label/value, legend grid
+      HorizontalBars.tsx           ← pure-CSS horizontal bars from rows[]
+      Heatmap.tsx                  ← 7×24 grid, sqrt-scaled intensity, Less/More legend
+  lib/
+    api.ts                         ← unchanged
+    auth.ts                        ← unchanged
+    chartColors.ts                 ← useChartColors() SSR-safe hook reading CSS vars (re-reads on theme change)
+```
+
+### Design System (CSS Variable Tokens)
+Defined in `app/globals.css` as RGB triples (`R G B`) so Tailwind can use `rgb(var(--token) / α)`:
+
+| Token               | Light          | Dark           | Purpose                          |
+|---------------------|----------------|----------------|----------------------------------|
+| `--bg`              | slate-50       | gray-950       | Page background                  |
+| `--surface`         | white          | gray-900       | Cards                            |
+| `--surface-2`       | slate-100      | gray-800       | Inner panels, info tiles         |
+| `--surface-hover`   | slate-200      | gray-800/50    | Hover states                     |
+| `--border`          | slate-200      | gray-800       | Default borders                  |
+| `--border-strong`   | slate-300      | gray-700       | Emphasized borders               |
+| `--fg`              | gray-900       | gray-50        | Primary text                     |
+| `--muted`           | gray-600       | gray-400       | Secondary text                   |
+| `--subtle`          | gray-400       | gray-500       | Tertiary text/icons              |
+| `--brand`           | blue-600       | blue-500       | Primary action / accent          |
+| `--brand-hover`     | blue-700       | blue-400       | Hover state for brand            |
+| `--brand-soft`      | blue-50        | blue-950       | Brand-tinted surfaces            |
+| `--success`         | emerald-600    | emerald-400    | Status success                   |
+| `--warning`         | amber-500      | amber-400      | Status warning                   |
+| `--danger`          | red-600        | red-400        | Status danger / destructive      |
+| `--info`            | sky-500        | sky-400        | Status info / running            |
+
+Tailwind config (`tailwind.config.ts`) maps these to semantic class names: `bg-bg`, `bg-surface`, `bg-surface-2`, `text-fg`, `text-muted`, `text-subtle`, `border-border`, `bg-brand`, `text-brand`, `bg-success/10`, etc.
+
+Utility classes in `globals.css`:
+- `.card` — surface bg, border, rounded-xl, card shadow
+- `.input` — full-width input/textarea/select with focus ring (brand)
+- `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-ghost`, `.btn-danger` — standardized button variants
+- `.label-xs` — uppercase tiny label
+
+### Theme Toggle
+- `ThemeProvider` reads `localStorage('autoctr-theme')` or `prefers-color-scheme` on mount
+- Applies/removes `dark` class on `<html>`
+- Inline script in `<head>` of `layout.tsx` runs before React hydrates → prevents FOUC
+- `ThemeToggle` component (Sun/Moon icons) sits in Topbar + auth-page corners
+
+### Overview Page (`/dashboard`)
+1. **KPI row (4 cards):** Active Campaigns · Completed Visits (+sparkline) · Clicks (+sparkline) · Actual CTR (+sparkline)
+2. **Visits over time** (`AreaTrend`, last 14 days, completed + failed) + **Campaign status** (`Donut`)
+3. **Clicks vs Impressions** (`StackedBars`) + **CTR trend** (`LineTrend`)
+4. **Device split** (`Donut`) + **Top campaigns** (`HorizontalBars`)
+5. **Activity heatmap** (`Heatmap`, 7×24, last 7 days, Asia/Dubai) + **Source IP distribution** (`HorizontalBars`)
+6. **Recent visits** widget (last 10) + 3 mini KPIs (Avg dwell · Mobile share · Paused)
+7. **All campaigns** table inside `<Card noPadding>`
+
+All charts hydrate colors from CSS vars via `useChartColors()` so they re-theme live with the toggle.
+Empty-state placeholders render for charts whenever the underlying series is empty.
+
+### Backend Support
+This redesign required the new `GET /api/analytics/overview` endpoint documented in [spec-04](spec-04-campaign-api.md#analytics-endpoint-added-with-dashboard-redesign). All time bucketing uses `Asia/Dubai` to match the worker scheduler.
+
+### Updated Acceptance Criteria
+- [ ] Theme toggle persists across reloads (`localStorage('autoctr-theme')`)
+- [ ] No FOUC on initial paint (inline bootstrap script applied before hydration)
+- [ ] All pages render with visual parity in light and dark themes
+- [ ] All Recharts components re-color on theme change without remount issues
+- [ ] Empty-state placeholders render for each chart when its data series is empty
+- [ ] Sidebar collapses to icon-only width and persists collapsed state
+- [ ] Topbar is sticky and remains visible on scroll
+- [ ] Overview page renders KPIs, all 7 chart components, recent visits widget, and full campaign table
+- [ ] `/api/analytics/overview` is fetched in parallel with `/api/campaigns` on the Overview page

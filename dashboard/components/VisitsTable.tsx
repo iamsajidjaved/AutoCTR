@@ -1,7 +1,10 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
+import StatusBadge from './StatusBadge';
+import clsx from 'clsx';
 
 interface Visit {
   id: string;
@@ -23,16 +26,9 @@ interface Props {
 
 const PAGE_SIZE = 25;
 
-const STATUS_STYLES: Record<Visit['status'], string> = {
-  pending: 'bg-gray-800 text-gray-300 border-gray-700',
-  running: 'bg-blue-950 text-blue-300 border-blue-800',
-  completed: 'bg-green-950 text-green-300 border-green-800',
-  failed: 'bg-red-950 text-red-300 border-red-800',
-};
-
 const TYPE_STYLES: Record<Visit['type'], string> = {
-  click: 'bg-purple-950 text-purple-300 border-purple-800',
-  impression: 'bg-gray-800 text-gray-400 border-gray-700',
+  click: 'bg-brand/10 text-brand border-brand/30',
+  impression: 'bg-surface-2 text-muted border-border',
 };
 
 function fmtTime(iso: string | null): string {
@@ -99,126 +95,117 @@ export default function VisitsTable({ campaignId, autoRefresh }: Props) {
     return () => clearInterval(interval);
   }, [autoRefresh, load]);
 
-  // Reset to page 0 whenever filters change
   useEffect(() => { setPage(0); }, [statusFilter, typeFilter, deviceFilter, sort, order]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <h2 className="text-base font-semibold text-white">Visits</h2>
-        <span className="text-xs text-gray-500">
-          {total.toLocaleString()} total{total > 0 && ` · showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`}
-        </span>
-      </div>
+  const selectCls =
+    'bg-surface-2 border border-border text-fg rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand/40';
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap gap-2 mb-4 text-xs">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2 py-1.5"
-        >
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="running">Running</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-        </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2 py-1.5"
-        >
-          <option value="">All types</option>
-          <option value="click">Click</option>
-          <option value="impression">Impression</option>
-        </select>
-        <select
-          value={deviceFilter}
-          onChange={(e) => setDeviceFilter(e.target.value)}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2 py-1.5"
-        >
-          <option value="">All devices</option>
-          <option value="mobile">Mobile</option>
-          <option value="desktop">Desktop</option>
-        </select>
-        <select
-          value={`${sort}:${order}`}
-          onChange={(e) => {
-            const [s, o] = e.target.value.split(':');
-            setSort(s as typeof sort);
-            setOrder(o as typeof order);
-          }}
-          className="bg-gray-800 border border-gray-700 text-gray-200 rounded-md px-2 py-1.5"
-        >
-          <option value="scheduled_at:asc">Scheduled ↑</option>
-          <option value="scheduled_at:desc">Scheduled ↓</option>
-          <option value="started_at:desc">Started ↓</option>
-          <option value="completed_at:desc">Completed ↓</option>
-        </select>
-      </div>
+  return (
+    <div className="card">
+      <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-fg">Visits</h3>
+          <p className="text-xs text-muted mt-0.5">
+            {total.toLocaleString()} total{total > 0 && ` · showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)}`}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className={selectCls}>
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="running">Running</option>
+            <option value="completed">Completed</option>
+            <option value="failed">Failed</option>
+          </select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className={selectCls}>
+            <option value="">All types</option>
+            <option value="click">Click</option>
+            <option value="impression">Impression</option>
+          </select>
+          <select value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)} className={selectCls}>
+            <option value="">All devices</option>
+            <option value="mobile">Mobile</option>
+            <option value="desktop">Desktop</option>
+          </select>
+          <select
+            value={`${sort}:${order}`}
+            onChange={(e) => {
+              const [s, o] = e.target.value.split(':');
+              setSort(s as typeof sort);
+              setOrder(o as typeof order);
+            }}
+            className={selectCls}
+          >
+            <option value="scheduled_at:asc">Scheduled ↑</option>
+            <option value="scheduled_at:desc">Scheduled ↓</option>
+            <option value="started_at:desc">Started ↓</option>
+            <option value="completed_at:desc">Completed ↓</option>
+          </select>
+        </div>
+      </header>
 
       {error && (
-        <div className="bg-red-950 border border-red-800 text-red-300 px-3 py-2 rounded-md text-sm mb-3">
+        <div className="bg-danger/10 border-b border-danger/30 text-danger px-5 py-2 text-sm">
           {error}
         </div>
       )}
 
-      {loading && visits.length === 0 ? (
-        <p className="text-sm text-gray-500 py-6 text-center">Loading visits…</p>
-      ) : visits.length === 0 ? (
-        <p className="text-sm text-gray-500 py-6 text-center">No visits match the current filters.</p>
-      ) : (
-        <div className="overflow-x-auto -mx-6 px-6">
-          <table className="w-full text-xs text-left">
-            <thead className="text-gray-500 uppercase tracking-wider">
-              <tr className="border-b border-gray-800">
-                <th className="py-2 pr-3 font-medium">Scheduled</th>
-                <th className="py-2 pr-3 font-medium">Type</th>
-                <th className="py-2 pr-3 font-medium">Device</th>
-                <th className="py-2 pr-3 font-medium">Status</th>
-                <th className="py-2 pr-3 font-medium">Started</th>
-                <th className="py-2 pr-3 font-medium">Completed</th>
-                <th className="py-2 pr-3 font-medium">Dwell</th>
-                <th className="py-2 pr-3 font-medium">IP</th>
+      <div className="overflow-x-auto">
+        {loading && visits.length === 0 ? (
+          <p className="text-sm text-muted py-10 text-center">Loading visits…</p>
+        ) : visits.length === 0 ? (
+          <p className="text-sm text-muted py-10 text-center">No visits match the current filters.</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-surface-2 border-b border-border text-[10px] uppercase tracking-wider text-subtle">
+                <th className="py-2.5 pl-5 pr-3 text-left font-semibold">Scheduled</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Type</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Device</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Status</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Started</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Completed</th>
+                <th className="py-2.5 pr-3 text-left font-semibold">Dwell</th>
+                <th className="py-2.5 pr-5 text-left font-semibold">IP</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-border">
               {visits.map((v) => {
                 const isOpen = expanded === v.id;
                 const canExpand = !!v.error_message;
                 return (
                   <Fragment key={v.id}>
                     <tr
-                      className={`border-b border-gray-800/60 hover:bg-gray-800/40 ${canExpand ? 'cursor-pointer' : ''}`}
+                      className={clsx(
+                        'hover:bg-surface-hover/40 transition-colors',
+                        canExpand && 'cursor-pointer'
+                      )}
                       onClick={() => canExpand && setExpanded(isOpen ? null : v.id)}
                     >
-                      <td className="py-2 pr-3 text-gray-300 whitespace-nowrap font-mono">{fmtTime(v.scheduled_at)}</td>
+                      <td className="py-2 pl-5 pr-3 text-muted whitespace-nowrap font-mono">{fmtTime(v.scheduled_at)}</td>
                       <td className="py-2 pr-3">
                         <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-medium ${TYPE_STYLES[v.type]}`}>
                           {v.type}
                         </span>
                       </td>
-                      <td className="py-2 pr-3 text-gray-300 capitalize">{v.device}</td>
+                      <td className="py-2 pr-3 text-fg capitalize">{v.device}</td>
                       <td className="py-2 pr-3">
-                        <span className={`inline-block px-1.5 py-0.5 rounded border text-[10px] font-medium capitalize ${STATUS_STYLES[v.status]}`}>
-                          {v.status}
+                        <span className="inline-flex items-center gap-1">
+                          <StatusBadge status={v.status} />
+                          {canExpand && (isOpen ? <ChevronDown size={12} className="text-subtle" /> : <ChevronRight size={12} className="text-subtle" />)}
                         </span>
-                        {canExpand && (
-                          <span className="ml-1 text-gray-600">{isOpen ? '▾' : '▸'}</span>
-                        )}
                       </td>
-                      <td className="py-2 pr-3 text-gray-400 whitespace-nowrap font-mono">{fmtTime(v.started_at)}</td>
-                      <td className="py-2 pr-3 text-gray-400 whitespace-nowrap font-mono">{fmtTime(v.completed_at)}</td>
-                      <td className="py-2 pr-3 text-gray-300">{v.actual_dwell_seconds != null ? `${v.actual_dwell_seconds}s` : '—'}</td>
-                      <td className="py-2 pr-3 text-gray-400 font-mono">{v.ip || '—'}</td>
+                      <td className="py-2 pr-3 text-muted whitespace-nowrap font-mono">{fmtTime(v.started_at)}</td>
+                      <td className="py-2 pr-3 text-muted whitespace-nowrap font-mono">{fmtTime(v.completed_at)}</td>
+                      <td className="py-2 pr-3 text-fg tabular-nums">{v.actual_dwell_seconds != null ? `${v.actual_dwell_seconds}s` : '—'}</td>
+                      <td className="py-2 pr-5 text-muted font-mono">{v.ip || '—'}</td>
                     </tr>
                     {isOpen && v.error_message && (
-                      <tr key={`${v.id}-err`} className="border-b border-gray-800/60 bg-red-950/30">
-                        <td colSpan={8} className="py-2 px-3 text-red-300 text-xs">
-                          <span className="text-red-500 font-semibold">Error: </span>
+                      <tr key={`${v.id}-err`} className="bg-danger/5">
+                        <td colSpan={8} className="py-2 px-5 text-danger text-xs">
+                          <span className="font-semibold">Error: </span>
                           <span className="font-mono break-all">{v.error_message}</span>
                         </td>
                       </tr>
@@ -228,26 +215,25 @@ export default function VisitsTable({ campaignId, autoRefresh }: Props) {
               })}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Pagination */}
       {total > PAGE_SIZE && (
-        <div className="flex items-center justify-between mt-4 text-xs text-gray-400">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-border text-xs text-muted">
           <button
             onClick={() => setPage((p) => Math.max(0, p - 1))}
             disabled={page === 0}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+            className="btn-secondary text-xs px-3 py-1.5"
           >
             ← Prev
           </button>
           <span>
-            Page <span className="text-white font-medium">{page + 1}</span> of {totalPages}
+            Page <span className="text-fg font-medium">{page + 1}</span> of {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
             disabled={page >= totalPages - 1}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed"
+            className="btn-secondary text-xs px-3 py-1.5"
           >
             Next →
           </button>

@@ -109,161 +109,128 @@ export default function NewCampaignForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-6">
       {error && (
-        <div className="bg-red-950 border border-red-800 text-red-300 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-danger/10 border border-danger/30 text-danger px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">Website URL</label>
-        <input
-          type="text"
-          name="website"
-          value={form.website}
-          onChange={handleChange}
-          placeholder="https://example.com"
-          className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">Keyword</label>
-        <input
-          type="text"
-          name="keyword"
-          value={form.keyword}
-          onChange={handleChange}
-          placeholder="your target keyword"
-          className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-600"
-          required
-        />
-      </div>
-
-      {/* Traffic Schedule */}
-      <div className="rounded-lg border border-gray-700 p-4 space-y-4">
-        <h3 className="text-sm font-semibold text-gray-200">Traffic Schedule</h3>
-        <div className="grid grid-cols-3 gap-4">
+      {/* Section: Target */}
+      <div className="card p-5 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-fg">Target</h3>
+          <p className="text-xs text-muted mt-0.5">The page and search query the bots will simulate.</p>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Duration (days)</label>
+            <label className="label-xs block mb-1.5">Website URL</label>
             <input
-              type="number"
-              name="campaign_duration_days"
-              value={form.campaign_duration_days}
+              type="text"
+              name="website"
+              value={form.website}
               onChange={handleChange}
-              min={1}
-              max={365}
-              className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="https://example.com"
+              className="input"
+              required
             />
-            <p className="text-xs text-gray-600 mt-1">1 – 365 days</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Day 1 Visits</label>
+            <label className="label-xs block mb-1.5">Keyword</label>
             <input
-              type="number"
-              name="initial_daily_visits"
-              value={form.initial_daily_visits}
+              type="text"
+              name="keyword"
+              value={form.keyword}
               onChange={handleChange}
-              min={1}
-              max={10000}
-              className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="your target keyword"
+              className="input"
+              required
             />
-            <p className="text-xs text-gray-600 mt-1">1 – 10,000 / day</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Section: Schedule */}
+      <div className="card p-5 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-fg">Traffic Schedule</h3>
+          <p className="text-xs text-muted mt-0.5">Configure how visits compound over the campaign duration.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="label-xs block mb-1.5">Duration (days)</label>
+            <input type="number" name="campaign_duration_days" value={form.campaign_duration_days} onChange={handleChange} min={1} max={365} className="input" />
+            <p className="text-[11px] text-subtle mt-1">1 – 365 days</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Daily Increase %</label>
-            <input
-              type="number"
-              name="daily_increase_pct"
-              value={form.daily_increase_pct}
-              onChange={handleChange}
-              min={0}
-              max={100}
-              step={0.1}
-              className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-600 mt-1">Compound growth</p>
+            <label className="label-xs block mb-1.5">Day 1 Visits</label>
+            <input type="number" name="initial_daily_visits" value={form.initial_daily_visits} onChange={handleChange} min={1} max={10000} className="input" />
+            <p className="text-[11px] text-subtle mt-1">1 – 10,000 / day</p>
+          </div>
+          <div>
+            <label className="label-xs block mb-1.5">Daily Increase %</label>
+            <input type="number" name="daily_increase_pct" value={form.daily_increase_pct} onChange={handleChange} min={0} max={100} step={0.1} className="input" />
+            <p className="text-[11px] text-subtle mt-1">Compound growth</p>
           </div>
         </div>
 
-        {/* Total visits preview */}
-        <div className="bg-gray-900 rounded-lg px-4 py-3 flex items-center justify-between">
-          <span className="text-sm text-gray-400">Estimated total visits</span>
-          <span className={`text-lg font-bold ${totalVisits > 1000000 ? 'text-red-400' : 'text-blue-400'}`}>
+        <div className="bg-surface-2 border border-border rounded-lg px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-muted">Estimated total visits</span>
+          <span className={`text-lg font-bold tabular-nums ${totalVisits > 1000000 ? 'text-danger' : 'text-brand'}`}>
             {totalVisits.toLocaleString()}
           </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Section: Behavior */}
+      <div className="card p-5 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">CTR %</label>
-          <input
-            type="number"
-            name="ctr"
-            value={form.ctr}
-            onChange={handleChange}
-            min={1}
-            max={100}
-            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <p className="text-xs text-gray-600 mt-1">1 – 100%</p>
+          <h3 className="text-sm font-semibold text-fg">Behavior</h3>
+          <p className="text-xs text-muted mt-0.5">CTR target, device split, and dwell window.</p>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">
-            Mobile Traffic — <span className="text-blue-400">{form.mobile_desktop_ratio}%</span>
-          </label>
-          <input
-            type="range"
-            name="mobile_desktop_ratio"
-            value={form.mobile_desktop_ratio}
-            onChange={handleChange}
-            min={0}
-            max={100}
-            className="w-full accent-blue-500 mt-2"
-          />
-          <div className="flex justify-between text-xs text-gray-600 mt-1">
-            <span>0% Desktop</span>
-            <span>100% Mobile</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label-xs block mb-1.5">CTR %</label>
+            <input type="number" name="ctr" value={form.ctr} onChange={handleChange} min={1} max={100} className="input" />
+            <p className="text-[11px] text-subtle mt-1">1 – 100%</p>
+          </div>
+          <div>
+            <label className="label-xs block mb-1.5">
+              Mobile Traffic — <span className="text-brand font-semibold">{form.mobile_desktop_ratio}%</span>
+            </label>
+            <input
+              type="range"
+              name="mobile_desktop_ratio"
+              value={form.mobile_desktop_ratio}
+              onChange={handleChange}
+              min={0}
+              max={100}
+              className="w-full accent-brand mt-2"
+            />
+            <div className="flex justify-between text-[11px] text-subtle mt-1">
+              <span>0% Desktop</span>
+              <span>100% Mobile</span>
+            </div>
           </div>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">Min Dwell Time (s)</label>
-          <input
-            type="number"
-            name="min_dwell_seconds"
-            value={form.min_dwell_seconds}
-            onChange={handleChange}
-            min={10}
-            max={1800}
-            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1.5">Max Dwell Time (s)</label>
-          <input
-            type="number"
-            name="max_dwell_seconds"
-            value={form.max_dwell_seconds}
-            onChange={handleChange}
-            min={form.min_dwell_seconds}
-            max={1800}
-            className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label-xs block mb-1.5">Min Dwell Time (s)</label>
+            <input type="number" name="min_dwell_seconds" value={form.min_dwell_seconds} onChange={handleChange} min={10} max={1800} className="input" />
+          </div>
+          <div>
+            <label className="label-xs block mb-1.5">Max Dwell Time (s)</label>
+            <input type="number" name="max_dwell_seconds" value={form.max_dwell_seconds} onChange={handleChange} min={form.min_dwell_seconds} max={1800} className="input" />
+          </div>
         </div>
       </div>
 
       <button
         type="submit"
         disabled={loading || totalVisits > 1000000}
-        className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors text-sm font-semibold"
+        className="btn-primary w-full py-3 text-sm"
       >
-        {loading ? 'Creating Campaign...' : 'Create & Activate Campaign'}
+        {loading ? 'Creating Campaign…' : 'Create & Activate Campaign'}
       </button>
     </form>
   );

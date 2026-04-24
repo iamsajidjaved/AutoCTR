@@ -1,12 +1,13 @@
-import { redirect } from 'next/navigation';
-import { cookies } from 'next/headers';
+'use client';
 
-export default async function Home() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token');
-  if (token) {
-    redirect('/dashboard');
-  } else {
-    redirect('/login');
-  }
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { getToken } from '@/lib/auth';
+
+export default function HomePage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(getToken() ? '/dashboard' : '/login');
+  }, [router]);
+  return null;
 }

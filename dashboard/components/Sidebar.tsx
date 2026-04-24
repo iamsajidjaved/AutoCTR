@@ -2,51 +2,118 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import {
+  LayoutDashboard,
+  Megaphone,
+  PlusCircle,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Activity,
+} from 'lucide-react';
 import { logout } from '@/lib/auth';
+import clsx from 'clsx';
 
-const nav = [
-  { label: 'Overview', href: '/dashboard', icon: '⊞' },
-  { label: 'Campaigns', href: '/dashboard/campaigns', icon: '⚡' },
-  { label: 'New Campaign', href: '/dashboard/campaigns/new', icon: '+' },
+const sections: Array<{
+  heading: string;
+  items: Array<{ label: string; href: string; icon: React.ComponentType<{ size?: number }> }>;
+}> = [
+  {
+    heading: 'Workspace',
+    items: [
+      { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
+      { label: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone },
+      { label: 'New Campaign', href: '/dashboard/campaigns/new', icon: PlusCircle },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside className="w-60 min-h-screen bg-gray-900 border-r border-gray-800 flex flex-col">
-      <div className="px-6 py-5 border-b border-gray-800">
-        <span className="text-xl font-bold text-white tracking-tight">Auto<span className="text-blue-400">CTR</span></span>
-        <p className="text-xs text-gray-500 mt-0.5">CTR Simulation Platform</p>
+    <aside
+      className={clsx(
+        'sticky top-0 h-screen bg-surface border-r border-border flex flex-col transition-[width] duration-200 shrink-0',
+        collapsed ? 'w-[68px]' : 'w-60'
+      )}
+    >
+      {/* Brand */}
+      <div className="px-4 py-4 border-b border-border flex items-center gap-2.5 h-16">
+        <div className="w-9 h-9 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
+          <Activity size={18} />
+        </div>
+        {!collapsed && (
+          <div className="overflow-hidden">
+            <p className="text-base font-bold text-fg leading-none tracking-tight">
+              Auto<span className="text-brand">CTR</span>
+            </p>
+            <p className="text-[10px] text-muted mt-1 whitespace-nowrap">CTR Simulation Suite</p>
+          </div>
+        )}
       </div>
 
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {nav.map((item) => {
-          const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span className="text-base leading-none">{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
+        {sections.map((section) => (
+          <div key={section.heading}>
+            {!collapsed && (
+              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-subtle">
+                {section.heading}
+              </p>
+            )}
+            <ul className="space-y-1">
+              {section.items.map((item) => {
+                const active =
+                  pathname === item.href ||
+                  (item.href !== '/dashboard' && pathname?.startsWith(item.href));
+                const Icon = item.icon;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      title={collapsed ? item.label : undefined}
+                      className={clsx(
+                        'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                        active
+                          ? 'bg-brand/10 text-brand'
+                          : 'text-muted hover:bg-surface-hover hover:text-fg'
+                      )}
+                    >
+                      <Icon size={18} />
+                      {!collapsed && <span>{item.label}</span>}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
       </nav>
 
-      <div className="px-3 py-4 border-t border-gray-800">
+      {/* Footer */}
+      <div className="px-3 py-3 border-t border-border space-y-1">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+          title={collapsed ? 'Sign out' : undefined}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted hover:bg-surface-hover hover:text-danger transition-colors"
         >
-          <span>↩</span>
-          Sign Out
+          <LogOut size={18} />
+          {!collapsed && <span>Sign Out</span>}
+        </button>
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="w-full flex items-center justify-center gap-2 px-2 py-1.5 rounded-lg text-xs text-subtle hover:bg-surface-hover hover:text-fg transition-colors"
+        >
+          {collapsed ? <ChevronRight size={14} /> : (
+            <>
+              <ChevronLeft size={14} />
+              <span>Collapse</span>
+            </>
+          )}
         </button>
       </div>
     </aside>

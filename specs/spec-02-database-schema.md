@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS traffic_details (
   status visit_status NOT NULL DEFAULT 'pending',
   started_at TIMESTAMPTZ,
   completed_at TIMESTAMPTZ,
-  actual_dwell_seconds INTEGER,   -- null for impressions; elapsed on-site seconds for clicks
+  actual_dwell_seconds INTEGER,   -- NULL for impressions (SERP view only, no click); elapsed on-site seconds for click/visit jobs
   error_message TEXT
 );
 

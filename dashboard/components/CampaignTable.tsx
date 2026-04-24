@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ExternalLink, Eye, Pause, Play, RotateCw, Trash2 } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import api from '@/lib/api';
 
@@ -18,9 +19,10 @@ interface Campaign {
 interface Props {
   campaigns: Campaign[];
   onRefresh: () => void;
+  emptyMessage?: string;
 }
 
-export default function CampaignTable({ campaigns, onRefresh }: Props) {
+export default function CampaignTable({ campaigns, onRefresh, emptyMessage }: Props) {
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -59,108 +61,115 @@ export default function CampaignTable({ campaigns, onRefresh }: Props) {
 
   if (campaigns.length === 0) {
     return (
-      <div className="text-center py-16 text-gray-500">
-        <p className="text-lg">No campaigns yet.</p>
-        <p className="text-sm mt-1">Click <span className="text-blue-400">+ New Campaign</span> to get started.</p>
+      <div className="text-center py-16 text-muted">
+        <p className="text-base">{emptyMessage || 'No campaigns yet.'}</p>
+        <p className="text-sm mt-1 text-subtle">
+          Click <span className="text-brand">+ New Campaign</span> to get started.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-800">
+    <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-gray-900 border-b border-gray-800 text-xs text-gray-500 uppercase tracking-wider">
-            <th className="px-4 py-3 text-left">Keyword</th>
-            <th className="px-4 py-3 text-left">Website</th>
-            <th className="px-4 py-3 text-center">Visits</th>
-            <th className="px-4 py-3 text-center">CTR</th>
-            <th className="px-4 py-3 text-center">Status</th>
-            <th className="px-4 py-3 text-center">Created</th>
-            <th className="px-4 py-3 text-right">Actions</th>
+          <tr className="bg-surface-2 border-y border-border text-[11px] text-subtle uppercase tracking-wider">
+            <th className="px-5 py-3 text-left font-semibold">Keyword</th>
+            <th className="px-4 py-3 text-left font-semibold">Website</th>
+            <th className="px-4 py-3 text-right font-semibold">Visits</th>
+            <th className="px-4 py-3 text-right font-semibold">CTR</th>
+            <th className="px-4 py-3 text-left font-semibold">Status</th>
+            <th className="px-4 py-3 text-left font-semibold">Created</th>
+            <th className="px-5 py-3 text-right font-semibold">Actions</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-800">
+        <tbody className="divide-y divide-border">
           {campaigns.map((c) => {
             const busy = loadingId === c.id;
             return (
-              <tr
-                key={c.id}
-                className="bg-gray-950 hover:bg-gray-900 transition-colors"
-              >
-                <td className="px-4 py-3 font-medium text-white max-w-[180px] truncate">
+              <tr key={c.id} className="hover:bg-surface-hover/50 transition-colors">
+                <td className="px-5 py-3.5 font-medium text-fg max-w-[200px] truncate">
                   <button
                     onClick={() => router.push(`/dashboard/campaigns/${c.id}`)}
-                    className="hover:text-blue-400 text-left transition-colors"
+                    className="hover:text-brand text-left transition-colors"
                   >
                     {c.keyword}
                   </button>
                 </td>
-                <td className="px-4 py-3 text-gray-400 max-w-[180px] truncate">
-                  <a href={c.website} target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">
+                <td className="px-4 py-3.5 text-muted max-w-[220px] truncate">
+                  <a
+                    href={c.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 hover:text-brand transition-colors"
+                  >
                     {c.website.replace(/^https?:\/\//, '')}
+                    <ExternalLink size={11} className="opacity-60" />
                   </a>
                 </td>
-                <td className="px-4 py-3 text-center text-gray-300">{c.required_visits.toLocaleString()}</td>
-                <td className="px-4 py-3 text-center text-gray-300">{c.ctr}%</td>
-                <td className="px-4 py-3 text-center">
+                <td className="px-4 py-3.5 text-right text-fg font-medium tabular-nums">
+                  {c.required_visits.toLocaleString()}
+                </td>
+                <td className="px-4 py-3.5 text-right text-muted tabular-nums">{c.ctr}%</td>
+                <td className="px-4 py-3.5">
                   <StatusBadge status={c.status} />
                 </td>
-                <td className="px-4 py-3 text-center text-gray-500 text-xs">
+                <td className="px-4 py-3.5 text-subtle text-xs">
                   {new Date(c.created_at).toLocaleDateString('en-GB', { timeZone: 'Asia/Dubai' })}
                 </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex gap-1.5 justify-end flex-wrap">
-                    {/* View */}
+                <td className="px-5 py-3.5 text-right">
+                  <div className="flex gap-1.5 justify-end">
                     <button
                       onClick={() => router.push(`/dashboard/campaigns/${c.id}`)}
                       disabled={busy}
-                      className="px-2.5 py-1 rounded text-xs bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-40"
+                      title="View"
+                      className="p-1.5 rounded-md text-muted hover:bg-surface-hover hover:text-fg transition-colors disabled:opacity-40"
                     >
-                      View
+                      <Eye size={14} />
                     </button>
 
-                    {/* Activate (pending only) */}
                     {c.status === 'pending' && (
                       <button
                         onClick={() => doAction(c.id, 'activate')}
                         disabled={busy}
-                        className="px-2.5 py-1 rounded text-xs bg-blue-700 text-white hover:bg-blue-600 transition-colors disabled:opacity-40"
+                        title="Start"
+                        className="p-1.5 rounded-md text-info hover:bg-info/10 transition-colors disabled:opacity-40"
                       >
-                        {busy ? '...' : 'Start'}
+                        <Play size={14} />
                       </button>
                     )}
 
-                    {/* Pause (running only) */}
                     {c.status === 'running' && (
                       <button
                         onClick={() => doAction(c.id, 'pause')}
                         disabled={busy}
-                        className="px-2.5 py-1 rounded text-xs bg-yellow-700 text-white hover:bg-yellow-600 transition-colors disabled:opacity-40"
+                        title="Pause"
+                        className="p-1.5 rounded-md text-warning hover:bg-warning/10 transition-colors disabled:opacity-40"
                       >
-                        {busy ? '...' : 'Pause'}
+                        <Pause size={14} />
                       </button>
                     )}
 
-                    {/* Restart (paused or completed) */}
                     {(c.status === 'paused' || c.status === 'completed') && (
                       <button
                         onClick={() => doAction(c.id, 'restart')}
                         disabled={busy}
-                        className="px-2.5 py-1 rounded text-xs bg-green-700 text-white hover:bg-green-600 transition-colors disabled:opacity-40"
+                        title="Restart"
+                        className="p-1.5 rounded-md text-success hover:bg-success/10 transition-colors disabled:opacity-40"
                       >
-                        {busy ? '...' : 'Restart'}
+                        <RotateCw size={14} />
                       </button>
                     )}
 
-                    {/* Delete (not running) */}
                     {c.status !== 'running' && (
                       <button
                         onClick={() => doDelete(c.id)}
                         disabled={busy}
-                        className="px-2.5 py-1 rounded text-xs bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-40"
+                        title="Delete"
+                        className="p-1.5 rounded-md text-danger hover:bg-danger/10 transition-colors disabled:opacity-40"
                       >
-                        {busy ? '...' : 'Delete'}
+                        <Trash2 size={14} />
                       </button>
                     )}
                   </div>

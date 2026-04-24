@@ -7,7 +7,12 @@
 ---
 
 ## Goal
-Replace the Puppeteer stub from spec-06 with a real stealth browser that searches Google and either impressions (scrolls/dwells) or clicks the target website. For click-type visits, the browser stays on the target site for a randomized dwell time performing human-like actions (scroll, internal navigation, text selection) — never leaving for an external domain. After this spec, each job opens a browser, performs the full visit, records actual dwell time, and closes cleanly.
+Replace the Puppeteer stub from spec-06 with a real stealth browser that executes two distinct job types:
+
+- **Impression** — The worker searches the keyword on Google, solves any Google CAPTCHA if it appears, views the Google SERP, scrolls up and down the results page, then closes the browser in a way that Google records it as a search impression. The target website appears in the results but is **not clicked**.
+- **Click / Visit** — The worker searches the keyword on Google, solves any Google CAPTCHA if it appears, finds the target website in the SERP, clicks on it, and then interacts with the site for a randomized dwell period performing human-like actions (scroll, internal navigation, text selection) — never navigating outside the target domain.
+
+After this spec, each job opens a browser, performs the appropriate action, records actual dwell time (clicks only), and closes cleanly.
 
 ---
 
@@ -105,19 +110,23 @@ async executeJob(job)
   8. humanBehavior.typeSlowly(page, 'textarea[name="q"]', job.keyword)
   9. Press Enter, waitForSelector('#search', { timeout: 15000 })
   10. humanBehavior.randomDelay(1500, 4000)
-  11. [CAPTCHA check here — stub for now, full impl in spec-09]
-  12. If job.type === 'impression':
+  11. captchaService.handleCaptcha(page) — if CAPTCHA appeared after search, wait for extension to solve it
+  12. If CAPTCHA was solved (postCheck.solved === true): waitForSelector('#search', timeout 20s) + randomDelay
+      → Google auto-submits the CAPTCHA form and navigates back to the SERP; must wait before reading results
+  13. If job.type === 'impression':
+        // Impression: view SERP only — scroll, dwell, then close. Site not clicked.
         humanBehavior.randomScroll(page)
         humanBehavior.randomDelay(3000, 8000)
         return { success: true, actualDwellSeconds: null }
-  13. If job.type === 'click':
-        a. Find link in #search matching target domain
-        b. humanBehavior.randomMouseMove(page)
-        c. Click the link, waitForNavigation
-        d. [CAPTCHA check on target page — stub for now]
+  14. If job.type === 'click':
+        // Click/Visit: find and click target site in SERP, then interact on-site.
+        a. findResultLink(page, targetDomain) — see helper below
+        b. resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+        c. randomDelay(500, 1500) + randomMouseMove(page)  ← hover before clicking
+        d. Promise.all([waitForNavigation, resultLink.click()])
         e. const dwellResult = await onSiteBehavior(page, job)
         f. return { success: true, actualDwellSeconds: dwellResult.elapsedSeconds }
-  14. Close browser (in finally block)
+  15. Close browser (in finally block)
 ```
 
 ### On-Site Behavior Loop (`onSiteBehavior`)
@@ -198,18 +207,34 @@ Timeout entire job at `max_dwell_seconds * 1.5 + 60` seconds (dwell + navigation
 ### CAPTCHA Detection (stub)
 For now: detect `#captcha-form` or `iframe[src*="recaptcha"]`, log warning, return `{ success: false, error: 'captcha', actualDwellSeconds: null }`. Full solving via RektCaptcha Chrome extension is implemented in spec-09.
 
-### Finding the Target URL in Search Results
+### Finding the Target URL in Search Results (`findResultLink`)
+
+Google attaches CTR tracking listeners to the `<a>` element that wraps the `<h3>` title. Clicking any other `<a>` in the result block (display URL, breadcrumb) will **not** register in Google Search Console as a click. The helper prioritises those title links:
+
 ```js
-// Extract hostname from job.website, match against #search result links
-const targetDomain = new URL(job.website).hostname;
-const links = await page.$$(`#search a[href*="${targetDomain}"]`);
+async function findResultLink(page, targetDomain) {
+  const links = await page.$$(`#search a[href*="${targetDomain}"]`);
+  // Prefer links that wrap an <h3> — these carry Google's data-ved click tracking
+  for (const link of links) {
+    const hasH3 = await link.evaluate(el => !!el.querySelector('h3'));
+    if (hasH3) return link;
+  }
+  return links.length > 0 ? links[0] : null;  // fallback
+}
+```
+
+Before clicking, scroll the element into view and hover with mouse movement so Google's `mousedown` handlers fire on the visible, in-viewport element (required for CTR to register):
+```js
+await resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+await humanBehavior.randomDelay(500, 1500);
+await humanBehavior.randomMouseMove(page);
 ```
 
 ---
 
 ## Acceptance Criteria
-- [ ] Impression jobs: search Google, scroll SERP, return `actualDwellSeconds: null`
-- [ ] Click jobs: search Google, click target URL, run on-site behavior loop, return `actualDwellSeconds`
+- [ ] Impression jobs: search Google, solve CAPTCHA if present, scroll SERP, close browser — target site is never clicked, `actualDwellSeconds: null`
+- [ ] Click/Visit jobs: search Google, solve CAPTCHA if present, click target URL in SERP, run on-site behavior loop, return `actualDwellSeconds`
 - [ ] `actualDwellSeconds` falls within `[min_dwell_seconds, max_dwell_seconds + small_overhead]`
 - [ ] On-site loop performs scroll, internal navigation, and text selection during dwell
 - [ ] Internal navigation never leaves the target domain (verified by checking `page.url()` after each nav)

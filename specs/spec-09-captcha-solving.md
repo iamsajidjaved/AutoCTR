@@ -26,6 +26,13 @@ Chrome extensions require the unpacked extension files on disk. Do this once:
 2. Unpack the downloaded `.crx` file (rename to `.zip`, extract)
 3. Place the unpacked folder at: `extensions/rektcaptcha/` in the project root
 4. Verify it contains `manifest.json`
+5. **Force-enable auto-solve defaults.** The extension ships with both **Auto Open** and **Auto Solve** disabled (`recaptcha_auto_open: false`, `recaptcha_auto_solve: false`) in `background.js`. Patch these defaults to `true` so freshly-launched Puppeteer profiles auto-solve CAPTCHAs without manual popup interaction:
+
+   In `extensions/rektcaptcha/background.js`, change the defaults object to:
+   ```js
+   const e={recaptcha_auto_open:!0,recaptcha_auto_solve:!0,recaptcha_click_delay_time:300,recaptcha_solve_delay_time:1e3};
+   ```
+   These defaults are applied via `chrome.runtime.onInstalled` on every fresh browser profile (Puppeteer creates a new temp profile per launch), so both options will always be ON for worker sessions.
 
 Add to `.gitignore`:
 ```
@@ -177,6 +184,13 @@ const postCheck = await captchaService.handleCaptcha(page);
 if (postCheck.reason === 'timeout') {
   return { success: false, error: 'captcha_timeout' };
 }
+// If a CAPTCHA was actually solved, Google auto-submits and navigates back to the SERP.
+// Wait for #search to load before reading results — the 1500ms sleep inside
+// handleCaptcha is not enough for a full navigation + render cycle.
+if (postCheck.solved) {
+  await page.waitForSelector('#search', { timeout: 20000 });
+  await randomDelay(1000, 2500);
+}
 // Now safe to read search results
 ```
 
@@ -201,3 +215,4 @@ if (!fs.existsSync(extensionPath)) {
 - [x] After 2 minutes without a solution, job is marked `failed` with `error='captcha_timeout'`
 - [x] If extension directory is missing, startup logs a warning (no crash)
 - [x] Jobs with no CAPTCHA are unaffected (fast path skips all waiting)
+- [x] `extensions/rektcaptcha/background.js` defaults set both `recaptcha_auto_open` and `recaptcha_auto_solve` to `true` so the extension solves CAPTCHAs without manual popup toggling

@@ -3,11 +3,19 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getToken } from '@/lib/auth';
+import {
+  ArrowLeft,
+  ExternalLink,
+  Pause as PauseIcon,
+  Play,
+  RotateCw,
+  Trash2,
+} from 'lucide-react';
 import api from '@/lib/api';
+import AppShell from '@/components/AppShell';
+import Card from '@/components/Card';
 import ProgressBar from '@/components/ProgressBar';
 import StatusBadge from '@/components/StatusBadge';
-import Sidebar from '@/components/Sidebar';
 import VisitsTable from '@/components/VisitsTable';
 
 interface Campaign {
@@ -62,21 +70,14 @@ export default function CampaignDetailPage() {
         err && typeof err === 'object' && 'response' in err
           ? (err as { response?: { data?: { error?: string } } }).response?.data?.error
           : undefined;
-      if (status === 404) {
-        setPageError('Campaign not found.');
-      } else if (status !== 401) {
-        setPageError(msg || 'Failed to load campaign. Is the API server running?');
-      }
+      if (status === 404) setPageError('Campaign not found.');
+      else if (status !== 401) setPageError(msg || 'Failed to load campaign.');
     }
   }, [id]);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.replace('/login');
-      return;
-    }
     fetchProgress().finally(() => setLoading(false));
-  }, [fetchProgress, router]);
+  }, [fetchProgress]);
 
   useEffect(() => {
     if (!campaign || campaign.status !== 'running') return;
@@ -116,206 +117,135 @@ export default function CampaignDetailPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <main className="flex-1 px-8 py-7 text-gray-500">Loading...</main>
-      </div>
-    );
-  }
-
-  if (pageError) {
-    return (
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <main className="flex-1 px-8 py-7">
-          <Link
-            href="/dashboard/campaigns"
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-5 inline-block"
-          >
-            ← Back to Campaigns
-          </Link>
-          <div className="bg-red-950 border border-red-800 text-red-300 px-4 py-3 rounded-lg text-sm mt-4">
-            {pageError}
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (!campaign) {
-    return (
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <main className="flex-1 px-8 py-7 text-red-400">Campaign not found.</main>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 px-8 py-7 overflow-auto">
-        <Link
-          href="/dashboard/campaigns"
-          className="text-xs text-gray-500 hover:text-gray-300 transition-colors mb-5 inline-block"
-        >
-          ← Back to Campaigns
-        </Link>
+    <AppShell title="Campaign" subtitle={campaign?.keyword}>
+      <Link
+        href="/dashboard/campaigns"
+        className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-fg transition-colors mb-5"
+      >
+        <ArrowLeft size={14} />
+        Back to Campaigns
+      </Link>
 
-        {/* Header card */}
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-5">
-          <div className="flex justify-between items-start flex-wrap gap-3 mb-4">
-            <div>
-              <h1 className="text-xl font-bold text-white mb-1">{campaign.keyword}</h1>
-              <a
-                href={campaign.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm text-blue-400 hover:underline"
-              >
-                {campaign.website}
-              </a>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <StatusBadge status={campaign.status} />
-              {campaign.status === 'pending' && (
-                <button
-                  onClick={() => doAction('activate')}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 text-sm bg-blue-700 text-white rounded-lg hover:bg-blue-600 disabled:opacity-40 transition-colors"
-                >
-                  Start
-                </button>
-              )}
-              {campaign.status === 'running' && (
-                <button
-                  onClick={() => doAction('pause')}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 text-sm bg-yellow-700 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-40 transition-colors"
-                >
-                  {actionLoading ? '...' : 'Pause'}
-                </button>
-              )}
-              {(campaign.status === 'paused' || campaign.status === 'completed') && (
-                <button
-                  onClick={() => doAction('restart')}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 text-sm bg-green-700 text-white rounded-lg hover:bg-green-600 disabled:opacity-40 transition-colors"
-                >
-                  {actionLoading ? '...' : 'Restart'}
-                </button>
-              )}
-              {campaign.status !== 'running' && (
-                <button
-                  onClick={doDelete}
-                  disabled={actionLoading}
-                  className="px-3 py-1.5 text-sm bg-red-900 text-red-300 rounded-lg hover:bg-red-800 disabled:opacity-40 transition-colors"
-                >
-                  {actionLoading ? '...' : 'Delete'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">Total Visits</p>
-              <p className="text-white font-semibold">{campaign.required_visits.toLocaleString()}</p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">CTR</p>
-              <p className="text-white font-semibold">{campaign.ctr}%</p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">Duration</p>
-              <p className="text-white font-semibold">
-                {campaign.campaign_duration_days} day{campaign.campaign_duration_days !== 1 ? 's' : ''}
-              </p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">Mobile Traffic</p>
-              <p className="text-white font-semibold">{campaign.mobile_desktop_ratio}%</p>
-            </div>
-            {campaign.initial_daily_visits != null && (
-              <>
-                <div className="bg-gray-800 rounded-lg p-3">
-                  <p className="text-gray-500 text-xs mb-0.5">Day 1 Visits</p>
-                  <p className="text-white font-semibold">{campaign.initial_daily_visits.toLocaleString()}</p>
-                </div>
-                <div className="bg-gray-800 rounded-lg p-3">
-                  <p className="text-gray-500 text-xs mb-0.5">Daily Increase</p>
-                  <p className="text-white font-semibold">{Number(campaign.daily_increase_pct)}%</p>
-                </div>
-              </>
-            )}
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">Min Dwell</p>
-              <p className="text-white font-semibold">{campaign.min_dwell_seconds}s</p>
-            </div>
-            <div className="bg-gray-800 rounded-lg p-3">
-              <p className="text-gray-500 text-xs mb-0.5">Max Dwell</p>
-              <p className="text-white font-semibold">{campaign.max_dwell_seconds}s</p>
-            </div>
-          </div>
+      {loading ? (
+        <p className="text-muted text-sm">Loading…</p>
+      ) : pageError ? (
+        <div className="bg-danger/10 border border-danger/30 text-danger px-4 py-3 rounded-lg text-sm">
+          {pageError}
         </div>
-
-        {/* Progress card */}
-        {progress && (
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-            <h2 className="text-base font-semibold text-white mb-5">Visit Progress</h2>
-            <div className="mb-6">
-              <ProgressBar
-                completed={progress.completed + progress.failed}
-                total={progress.total}
-              />
+      ) : campaign && (
+        <div className="space-y-6">
+          <Card>
+            <div className="flex justify-between items-start gap-4 flex-wrap mb-5">
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-fg mb-1.5 truncate">{campaign.keyword}</h2>
+                <a
+                  href={campaign.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-brand hover:underline"
+                >
+                  {campaign.website}
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <StatusBadge status={campaign.status} size="md" />
+                {campaign.status === 'pending' && (
+                  <button onClick={() => doAction('activate')} disabled={actionLoading} className="btn-primary text-sm">
+                    <Play size={14} /> Start
+                  </button>
+                )}
+                {campaign.status === 'running' && (
+                  <button onClick={() => doAction('pause')} disabled={actionLoading} className="btn text-sm bg-warning/10 text-warning hover:bg-warning/20 px-3.5 py-2">
+                    <PauseIcon size={14} /> Pause
+                  </button>
+                )}
+                {(campaign.status === 'paused' || campaign.status === 'completed') && (
+                  <button onClick={() => doAction('restart')} disabled={actionLoading} className="btn text-sm bg-success/10 text-success hover:bg-success/20 px-3.5 py-2">
+                    <RotateCw size={14} /> Restart
+                  </button>
+                )}
+                {campaign.status !== 'running' && (
+                  <button onClick={doDelete} disabled={actionLoading} className="btn-danger text-sm">
+                    <Trash2 size={14} /> Delete
+                  </button>
+                )}
+              </div>
             </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <div className="bg-gray-800 rounded-lg p-3 text-center">
-                <p className="text-gray-500 text-xs mb-1">Pending</p>
-                <p className="text-2xl font-bold text-gray-300">{progress.pending}</p>
-              </div>
-              <div className="bg-blue-950 rounded-lg p-3 text-center">
-                <p className="text-blue-400 text-xs mb-1">Running</p>
-                <p className="text-2xl font-bold text-blue-300">{progress.running}</p>
-              </div>
-              <div className="bg-green-950 rounded-lg p-3 text-center">
-                <p className="text-green-400 text-xs mb-1">Completed</p>
-                <p className="text-2xl font-bold text-green-300">{progress.completed}</p>
-              </div>
-              <div className="bg-red-950 rounded-lg p-3 text-center">
-                <p className="text-red-400 text-xs mb-1">Failed</p>
-                <p className="text-2xl font-bold text-red-300">{progress.failed}</p>
-              </div>
+              <InfoTile label="Total Visits" value={campaign.required_visits.toLocaleString()} />
+              <InfoTile label="CTR" value={`${campaign.ctr}%`} />
+              <InfoTile label="Duration" value={`${campaign.campaign_duration_days} day${campaign.campaign_duration_days !== 1 ? 's' : ''}`} />
+              <InfoTile label="Mobile Traffic" value={`${campaign.mobile_desktop_ratio}%`} />
+              {campaign.initial_daily_visits != null && (
+                <>
+                  <InfoTile label="Day 1 Visits" value={campaign.initial_daily_visits.toLocaleString()} />
+                  <InfoTile label="Daily Increase" value={`${Number(campaign.daily_increase_pct)}%`} />
+                </>
+              )}
+              <InfoTile label="Min Dwell" value={`${campaign.min_dwell_seconds}s`} />
+              <InfoTile label="Max Dwell" value={`${campaign.max_dwell_seconds}s`} />
             </div>
-            {progress.avgDwellSeconds !== null && (
-              <p className="text-sm text-gray-500 mt-4">
-                Avg dwell time:{' '}
-                <span className="text-white font-medium">{progress.avgDwellSeconds}s</span>
-              </p>
-            )}
-            {campaign.status === 'running' && (
-              <p className="text-xs text-gray-600 mt-3">Auto-refreshing every 5 seconds…</p>
-            )}
-            {campaign.status === 'completed' && (
-              <p className="text-xs text-green-500 mt-3 font-medium">✓ Campaign completed</p>
-            )}
-            {campaign.status === 'paused' && (
-              <p className="text-xs text-yellow-500 mt-3 font-medium">
-                ⏸ Campaign paused — click Restart to run again from scratch
-              </p>
-            )}
-          </div>
-        )}
+          </Card>
 
-        {/* Visits table */}
-        <div className="mt-5">
+          {progress && (
+            <Card title="Visit progress" subtitle={
+              campaign.status === 'running' ? 'Auto-refreshing every 5 seconds' : undefined
+            }>
+              <div className="mb-6">
+                <ProgressBar completed={progress.completed + progress.failed} total={progress.total} />
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <ProgressTile label="Pending" value={progress.pending} tone="muted" />
+                <ProgressTile label="Running" value={progress.running} tone="info" />
+                <ProgressTile label="Completed" value={progress.completed} tone="success" />
+                <ProgressTile label="Failed" value={progress.failed} tone="danger" />
+              </div>
+              {progress.avgDwellSeconds !== null && (
+                <p className="text-sm text-muted mt-5">
+                  Avg dwell time: <span className="text-fg font-semibold">{progress.avgDwellSeconds}s</span>
+                </p>
+              )}
+            </Card>
+          )}
+
           <VisitsTable campaignId={id} autoRefresh={campaign.status === 'running'} />
         </div>
-      </main>
+      )}
+    </AppShell>
+  );
+}
+
+function InfoTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-surface-2 border border-border rounded-lg p-3">
+      <p className="label-xs">{label}</p>
+      <p className="text-fg font-semibold mt-1">{value}</p>
     </div>
   );
 }
 
-
+function ProgressTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'muted' | 'info' | 'success' | 'danger';
+}) {
+  const toneCls = {
+    muted: 'bg-surface-2 text-muted',
+    info: 'bg-info/10 text-info',
+    success: 'bg-success/10 text-success',
+    danger: 'bg-danger/10 text-danger',
+  }[tone];
+  return (
+    <div className={`rounded-lg p-3 text-center ${toneCls}`}>
+      <p className="text-xs mb-1 opacity-80">{label}</p>
+      <p className="text-2xl font-bold tabular-nums">{value}</p>
+    </div>
+  );
+}
