@@ -1,0 +1,28 @@
+# Environment — never commit
+.env
+.env.local
+.env.*.local
+
+# Chrome extension (unpacked, gitignored per spec-09)
+extensions/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# PM2
+.pm2/
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+.next/
+
+# IDE
+.vscode/
+.idea/
