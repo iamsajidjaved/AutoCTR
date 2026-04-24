@@ -121,7 +121,8 @@ autoctr/
 │   │   ├── CampaignTable.tsx
 │   │   ├── StatusBadge.tsx
 │   │   ├── ProgressBar.tsx
-│   │   └── NewCampaignForm.tsx
+│   │   ├── NewCampaignForm.tsx
+│   │   └── VisitsTable.tsx
 │   └── lib/
 │       ├── api.ts                  ← Axios instance with JWT interceptor
 │       └── auth.ts                 ← Login/logout/cookie helpers
@@ -438,6 +439,7 @@ All campaign routes require `Authorization: Bearer <token>`.
 | `POST` | `/api/campaigns/:id/pause` | Pause a running campaign immediately |
 | `POST` | `/api/campaigns/:id/restart` | Restart a paused or completed campaign from scratch |
 | `GET` | `/api/campaigns/:id/progress` | Live progress counts |
+| `GET` | `/api/campaigns/:id/visits` | Paginated, filterable per-visit detail (`status`, `type`, `device`, `sort`, `order`, `limit`, `offset`) |
 
 ### Create Campaign — Request Body
 
@@ -504,7 +506,7 @@ Access at `http://localhost:3001` after running `npm run dashboard`.
 | `/dashboard` | Overview — stats row + all campaigns table |
 | `/dashboard/campaigns` | Filterable campaign list (by status) |
 | `/dashboard/campaigns/new` | Create & activate a new campaign |
-| `/dashboard/campaigns/:id` | Campaign detail with live progress (polls every 5s) |
+| `/dashboard/campaigns/:id` | Campaign detail — progress, action buttons, and a paginated/filterable visits table (live-refreshes every 5s while running) |
 
 ### Campaign Table Actions
 

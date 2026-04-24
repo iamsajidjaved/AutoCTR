@@ -82,4 +82,14 @@ async function restart(req, res, next) {
   }
 }
 
-module.exports = { create, list, getOne, remove, activate, progress, pause, restart };
+async function visits(req, res, next) {
+  try {
+    const result = await campaignService.listVisits(req.params.id, req.user.id, req.query);
+    res.json(result);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  }
+}
+
+module.exports = { create, list, getOne, remove, activate, progress, pause, restart, visits };

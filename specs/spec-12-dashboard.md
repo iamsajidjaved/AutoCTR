@@ -100,6 +100,15 @@ dashboard/
 - Info grid: Total Visits, CTR, Duration, Mobile %, (Day 1 Visits + Daily Increase % shown only for multi-day campaigns), Min/Max Dwell
 - Progress card: `ProgressBar`, 4 status count boxes
 - Polls `GET /api/campaigns/:id/progress` every 5s while `running`, stops when `completed` or `paused`
+- **Visits panel** (`VisitsTable` component): paginated table of every visit for the campaign
+  - Columns: Scheduled, Type, Device, Status, Started, Completed, Dwell, IP
+  - Filter dropdowns: status, type, device
+  - Sort dropdown: scheduled↑/↓, started↓, completed↓
+  - Page size 25, prev/next pagination, total + range indicator
+  - Failed rows are clickable and expand inline to show `error_message`
+  - Auto-refreshes every 5s while campaign is `running` (same cadence as Progress card)
+  - All times rendered in `Asia/Dubai` (matches backend / scheduler timezone)
+  - Backed by `GET /api/campaigns/:id/visits`
 
 ### `CampaignTable` Action Logic
 | Status    | Available Actions          |

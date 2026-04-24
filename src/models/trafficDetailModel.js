@@ -125,4 +125,61 @@ async function avgDwellSeconds(summaryId) {
   return rows[0]?.avg ?? null;
 }
 
-module.exports = { bulkCreate, claimPendingDue, pendingDueStats, updateStatus, countByStatus, avgDwellSeconds };
+/**
+ * Page through visits for a campaign with optional filters.
+ * Used by the dashboard's per-campaign Visits panel.
+ *
+ * @param {string} summaryId - traffic_summaries.id
+ * @param {object} opts
+ * @param {string} [opts.status] - one of pending|running|completed|failed
+ * @param {string} [opts.type]   - impression|click
+ * @param {string} [opts.device] - mobile|desktop
+ * @param {number} [opts.limit=50]   - 1..200
+ * @param {number} [opts.offset=0]
+ * @param {string} [opts.sort='scheduled_at'] - scheduled_at|started_at|completed_at
+ * @param {string} [opts.order='asc']         - asc|desc
+ * @returns {Promise<{ rows: object[], total: number }>}
+ */
+async function listBySummary(summaryId, opts = {}) {
+  const status = opts.status || null;
+  const type = opts.type || null;
+  const device = opts.device || null;
+  const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
+  const offset = Math.max(Number(opts.offset) || 0, 0);
+
+  const sortable = new Set(['scheduled_at', 'started_at', 'completed_at']);
+  const sort = sortable.has(opts.sort) ? opts.sort : 'scheduled_at';
+  const order = String(opts.order || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+  const client = await pool.connect();
+  try {
+    const params = [summaryId];
+    let where = `traffic_summary_id = $1`;
+    if (status) { params.push(status); where += ` AND status = $${params.length}`; }
+    if (type)   { params.push(type);   where += ` AND type = $${params.length}`; }
+    if (device) { params.push(device); where += ` AND device = $${params.length}`; }
+
+    const totalRes = await client.query(
+      `SELECT COUNT(*)::int AS total FROM traffic_details WHERE ${where}`,
+      params
+    );
+
+    params.push(limit);
+    params.push(offset);
+    const rowsRes = await client.query(
+      `SELECT id, scheduled_at, started_at, completed_at, type, device, status, ip,
+              actual_dwell_seconds, error_message
+         FROM traffic_details
+        WHERE ${where}
+        ORDER BY ${sort} ${order} NULLS LAST, id ASC
+        LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+
+    return { rows: rowsRes.rows, total: totalRes.rows[0].total };
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { bulkCreate, claimPendingDue, pendingDueStats, updateStatus, countByStatus, avgDwellSeconds, listBySummary };

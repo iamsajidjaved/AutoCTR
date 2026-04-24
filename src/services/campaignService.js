@@ -232,4 +232,19 @@ async function restartCampaign(id, userId) {
   return { campaign: updatedCampaign, visitsScheduled: visits.length };
 }
 
-module.exports = { createCampaign, listCampaigns, getCampaign, deleteCampaign, activateCampaign, pauseCampaign, restartCampaign };
+async function listVisits(id, userId, query = {}) {
+  // Verify ownership first — this throws 404 if the campaign isn't the user's.
+  await getCampaign(id, userId);
+  const { rows, total } = await trafficDetailModel.listBySummary(id, {
+    status: query.status,
+    type: query.type,
+    device: query.device,
+    limit: query.limit,
+    offset: query.offset,
+    sort: query.sort,
+    order: query.order,
+  });
+  return { visits: rows, total, limit: Math.min(Math.max(Number(query.limit) || 50, 1), 200), offset: Math.max(Number(query.offset) || 0, 0) };
+}
+
+module.exports = { createCampaign, listCampaigns, getCampaign, deleteCampaign, activateCampaign, pauseCampaign, restartCampaign, listVisits };

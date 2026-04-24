@@ -8,6 +8,7 @@ import api from '@/lib/api';
 import ProgressBar from '@/components/ProgressBar';
 import StatusBadge from '@/components/StatusBadge';
 import Sidebar from '@/components/Sidebar';
+import VisitsTable from '@/components/VisitsTable';
 
 interface Campaign {
   id: string;
@@ -307,6 +308,11 @@ export default function CampaignDetailPage() {
             )}
           </div>
         )}
+
+        {/* Visits table */}
+        <div className="mt-5">
+          <VisitsTable campaignId={id} autoRefresh={campaign.status === 'running'} />
+        </div>
       </main>
     </div>
   );

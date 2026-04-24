@@ -127,6 +127,41 @@ POST   /api/campaigns/:id/activate → start pending campaign → 200
 POST   /api/campaigns/:id/pause    → pause running campaign, cancel all pending/running visits → 200
 POST   /api/campaigns/:id/restart  → restart paused/completed campaign from scratch → 200
 GET    /api/campaigns/:id/progress → progress counts → 200
+GET    /api/campaigns/:id/visits   → paginated, filterable list of visits → 200
+```
+
+#### `GET /api/campaigns/:id/visits` query params
+| Param   | Type   | Default        | Notes |
+|---------|--------|----------------|-------|
+| `status`| string | (all)          | `pending` \| `running` \| `completed` \| `failed` |
+| `type`  | string | (all)          | `impression` \| `click` |
+| `device`| string | (all)          | `mobile` \| `desktop` |
+| `sort`  | string | `scheduled_at` | `scheduled_at` \| `started_at` \| `completed_at` |
+| `order` | string | `asc`          | `asc` \| `desc` (NULLS LAST is always applied) |
+| `limit` | int    | `50`           | Clamped to `1..200` |
+| `offset`| int    | `0`            | Non-negative |
+
+Response:
+```json
+{
+  "visits": [
+    {
+      "id": "uuid",
+      "scheduled_at": "2026-04-24T...",
+      "started_at": null,
+      "completed_at": null,
+      "type": "click",
+      "device": "mobile",
+      "status": "pending",
+      "ip": null,
+      "actual_dwell_seconds": null,
+      "error_message": null
+    }
+  ],
+  "total": 1645,
+  "limit": 50,
+  "offset": 0
+}
 ```
 
 ### Response Shape

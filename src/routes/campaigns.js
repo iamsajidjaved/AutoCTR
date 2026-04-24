@@ -10,6 +10,7 @@ router.post('/', campaignController.create);
 router.get('/', campaignController.list);
 router.get('/:id', campaignController.getOne);
 router.get('/:id/progress', campaignController.progress);
+router.get('/:id/visits', campaignController.visits);
 router.delete('/:id', campaignController.remove);
 router.post('/:id/activate', campaignController.activate);
 router.post('/:id/pause', campaignController.pause);
