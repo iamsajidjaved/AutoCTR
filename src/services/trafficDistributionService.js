@@ -1,4 +1,5 @@
 const scheduler = require('../utils/scheduler');
+const config = require('../config');
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -36,6 +37,7 @@ function buildDayVisits(dayVisits, ctr, mobileDesktopRatio, dayStart) {
     peakHours: [9, 13, 18],
     peakWeight: 3,
     minGapSeconds: 30,
+    timezone: config.TIMEZONE,
   });
 
   return types.map((type, i) => ({

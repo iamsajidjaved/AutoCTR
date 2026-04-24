@@ -107,7 +107,7 @@ export default function CampaignTable({ campaigns, onRefresh }: Props) {
                   <StatusBadge status={c.status} />
                 </td>
                 <td className="px-4 py-3 text-center text-gray-500 text-xs">
-                  {new Date(c.created_at).toLocaleDateString()}
+                  {new Date(c.created_at).toLocaleDateString('en-GB', { timeZone: 'Asia/Dubai' })}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex gap-1.5 justify-end flex-wrap">
