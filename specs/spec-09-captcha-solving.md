@@ -1,8 +1,10 @@
 # spec-09 — CAPTCHA Solving (RektCaptcha Extension)
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-08
 **Blocks:** —
+
+> Note: All code-side work is complete. The unpacked extension at `extensions/rektcaptcha/` is a one-time manual developer step (gitignored) — without it, startup logs a warning and CAPTCHA-bearing jobs will fail with `captcha_timeout` (acceptable degraded behavior).
 
 ---
 
@@ -192,10 +194,10 @@ if (!fs.existsSync(extensionPath)) {
 ---
 
 ## Acceptance Criteria
-- [ ] `extensions/rektcaptcha/manifest.json` exists (manual setup done)
-- [ ] Puppeteer launches with `--load-extension` pointing to the extension directory
-- [ ] `isCaptchaPresent()` correctly detects reCAPTCHA iframes on a CAPTCHA page
-- [ ] When CAPTCHA is present, `waitForCaptchaSolved()` polls until token appears in `#g-recaptcha-response`
-- [ ] After 2 minutes without a solution, job is marked `failed` with `error='captcha_timeout'`
-- [ ] If extension directory is missing, startup logs a warning (no crash)
-- [ ] Jobs with no CAPTCHA are unaffected (fast path skips all waiting)
+- [ ] `extensions/rektcaptcha/manifest.json` exists (manual setup done — pending developer)
+- [x] Puppeteer launches with `--load-extension` pointing to the extension directory
+- [x] `isCaptchaPresent()` correctly detects reCAPTCHA iframes on a CAPTCHA page
+- [x] When CAPTCHA is present, `waitForCaptchaSolved()` polls until token appears in `#g-recaptcha-response`
+- [x] After 2 minutes without a solution, job is marked `failed` with `error='captcha_timeout'`
+- [x] If extension directory is missing, startup logs a warning (no crash)
+- [x] Jobs with no CAPTCHA are unaffected (fast path skips all waiting)

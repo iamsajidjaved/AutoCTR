@@ -1,6 +1,6 @@
 # spec-03 — Authentication System (JWT)
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-02
 **Blocks:** spec-04, spec-12
 

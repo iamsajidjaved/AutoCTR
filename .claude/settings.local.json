@@ -4,7 +4,25 @@
       "WebSearch",
       "WebFetch(domain:shoplikeproxy.com)",
       "WebFetch(domain:documenter.getpostman.com)",
-      "WebFetch(domain:www.postman.com)"
+      "WebFetch(domain:www.postman.com)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).randomBytes\\(32\\).toString\\('hex'\\)\\)\")",
+      "Bash(node src/server.js)",
+      "Bash(curl -s http://localhost:3000/health)",
+      "Bash(curl -s http://localhost:3000/nonexistent)",
+      "Bash(kill %1)",
+      "Bash(npm run *)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"console.log\\(require\\('express/package.json'\\).version\\)\")",
+      "Bash(pkill -f \"node src/server.js\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/register -H 'Content-Type: application/json' -d '{\"email\":\"testcurl@example.com\",\"password\":\"password123\"}')",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3000 -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | ForEach-Object { $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue; [PSCustomObject]@{Port=$_.LocalPort; PID=$_.OwningProcess; Name=$proc.Name; CMD=$proc.CommandLine} })",
+      "PowerShell(netstat -ano)",
+      "PowerShell(Stop-Process -Id 19652 -Force)",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/register -H 'Content-Type: application/json' -d '{\"email\":\"testcurl2@example.com\",\"password\":\"password123\"}')",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
     ]
   }
 }

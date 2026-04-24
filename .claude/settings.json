@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Stop-Process -Force)",
+      "Bash(node -e ' *)",
+      "Bash(timeout 8 node src/workers/trafficWorker.js)",
+      "Bash(node -e \"require\\('puppeteer-extra'\\); require\\('puppeteer-extra-plugin-stealth'\\); console.log\\('OK'\\)\")"
+    ]
+  }
+}

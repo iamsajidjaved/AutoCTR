@@ -1,6 +1,6 @@
 # spec-01 — Project Setup & Folder Structure
 
-**Status:** not started
+**Status:** complete
 **Depends on:** —
 **Blocks:** spec-02, spec-03, spec-04, spec-05, spec-06, spec-07, spec-08, spec-09, spec-10, spec-11, spec-12
 

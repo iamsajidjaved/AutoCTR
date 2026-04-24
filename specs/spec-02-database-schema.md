@@ -1,6 +1,6 @@
 # spec-02 — Database Schema & Migrations
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-01
 **Blocks:** spec-03, spec-04
 

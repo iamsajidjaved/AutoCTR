@@ -1,6 +1,6 @@
 # spec-04 — Campaign API (CRUD)
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-03
 **Blocks:** spec-05, spec-12
 

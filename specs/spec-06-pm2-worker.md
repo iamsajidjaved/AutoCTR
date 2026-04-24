@@ -1,6 +1,6 @@
 # spec-06 — PM2 Worker & Scheduler
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-05
 **Blocks:** spec-07, spec-11
 

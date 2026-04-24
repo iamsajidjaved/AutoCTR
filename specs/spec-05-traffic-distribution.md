@@ -1,6 +1,6 @@
 # spec-05 — Traffic Distribution Engine
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-04
 **Blocks:** spec-06, spec-10
 

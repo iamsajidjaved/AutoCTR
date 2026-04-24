@@ -1,6 +1,6 @@
 # spec-08 — Proxy Integration
 
-**Status:** not started
+**Status:** complete
 **Depends on:** spec-07
 **Blocks:** spec-09
 
