@@ -2,9 +2,16 @@ const { neon, Pool } = require('@neondatabase/serverless');
 const config = require('../config');
 
 // Append `options=-c TimeZone=<tz>` to the libpq connection string so every
-// session opened by Neon (HTTP `sql` and pooled `pool`) starts in the configured
+// session opened by the WebSocket-based `pool` starts in the configured
 // timezone (default Asia/Dubai). NOW(), CURRENT_TIMESTAMP and TIMESTAMPTZ output
-// will all be expressed in Dubai local time.
+// will all be expressed in Dubai local time on pooled connections.
+//
+// NOTE: Neon's HTTP REST endpoint (used by `sql`) silently strips the `options`
+// parameter — each call is a stateless transaction, so `SHOW TimeZone` over the
+// HTTP driver always reports `GMT`. Absolute TIMESTAMPTZ values are still
+// returned as correct UTC instants, and the JS process itself runs in
+// `Asia/Dubai` (process.env.TZ is forced in src/config/index.js), so all
+// application-level wall-clock arithmetic is consistent.
 function withTimezone(url, tz) {
   if (!url || !tz) return url;
   const param = `options=${encodeURIComponent(`-c TimeZone=${tz}`)}`;

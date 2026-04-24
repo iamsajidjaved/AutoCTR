@@ -159,6 +159,8 @@ JWT_SECRET=your-long-random-secret-here
 PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
+# IANA timezone for the Node process and Postgres session (default: Asia/Dubai)
+TZ=Asia/Dubai
 
 # Shoplike rotating proxy — comma-separated list of API keys
 # Each key = one independent rotating IP slot
@@ -321,6 +323,7 @@ Ensure `.env` in the project root has these values set:
 ```
 DATABASE_URL=...        ← Neon connection string
 JWT_SECRET=...          ← Long random string
+TZ=Asia/Dubai           ← IANA timezone (process + DB session)
 SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
 REKTCAPTCHA_PATH=...    ← Path to unpacked RektCaptcha extension
 ```
@@ -616,9 +619,9 @@ CAPTCHA checks occur:
 
 Rather than distributing visits at perfectly uniform intervals (which looks robotic), AutoCTR uses a weighted random scheduler that concentrates traffic toward peak hours.
 
-**Default peak hours:** 9 AM, 1 PM, 6 PM
+**Default peak hours:** 9 AM, 1 PM, 6 PM (interpreted in `Asia/Dubai`, configurable via the `TZ` env var)
 
-Visits within peak windows are 3× more likely to be scheduled than off-peak slots. A minimum gap of 30 seconds is enforced between consecutive visits. All times are relative to `NOW()` and spread across a 24-hour window.
+Visits within peak windows are 3× more likely to be scheduled than off-peak slots. A minimum gap of 30 seconds is enforced between consecutive visits. All times are relative to `NOW()` (Dubai local time) and spread across a 24-hour window. Both the Node process (`process.env.TZ`) and the Postgres pool session (`SET TIME ZONE`) are forced to Dubai so wall-clock arithmetic is consistent across the API, workers, and database.
 
 ---
 
@@ -643,9 +646,6 @@ Visits within peak windows are 3× more likely to be scheduled than off-peak slo
 
 **`required_visits must be an integer` on campaign create**
 → Ensure all numeric form fields are sent as integers in the API request body (snake_case field names). If you've recently changed validation rules and the new bounds aren't being applied, a stale `node src/server.js` process may be holding port 3000, preventing PM2's `ctr-api` from binding. Run `Get-NetTCPConnection -LocalPort 3000 -State Listen` and kill any non-PM2 owner.
-
-**End-to-end smoke test**
-→ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-test.ps1` to exercise register / login / full campaign CRUD lifecycle (create → activate → pause → restart → delete) plus cross-tenant isolation checks against `http://localhost:3000`.
 
 **Workers not picking up jobs**
 → Confirm `npm run db:migrate` has been run (migration 005 adds the `paused` enum value). Without it, the `campaign_status` type doesn't include `paused` and queries may fail.

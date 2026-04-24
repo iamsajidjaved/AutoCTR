@@ -38,12 +38,24 @@ Add to `package.json` scripts:
 ### `src/models/db.js`
 Use `@neondatabase/serverless` with `neon()` for simple queries and `Pool` for transactions.
 
+The connection string is augmented with `options=-c TimeZone=<TZ>` (default `Asia/Dubai`) so every Postgres session opened by the WebSocket-based `Pool` runs in Dubai local time. A `pool.on('connect')` hook also issues `SET TIME ZONE` as a fallback in case an upstream proxy strips the libpq `options` parameter. NOTE: Neon's HTTP REST endpoint used by `sql` is stateless per request and silently drops `options`; absolute `TIMESTAMPTZ` instants are still returned correctly because the Node process itself runs in `Asia/Dubai` (`process.env.TZ` is forced in `src/config/index.js`).
+
 ```js
 const { neon, Pool } = require('@neondatabase/serverless');
 const config = require('../config');
 
-const sql = neon(config.DATABASE_URL);
-const pool = new Pool({ connectionString: config.DATABASE_URL });
+function withTimezone(url, tz) {
+  if (!url || !tz) return url;
+  const param = `options=${encodeURIComponent(`-c TimeZone=${tz}`)}`;
+  return url.includes('?') ? `${url}&${param}` : `${url}?${param}`;
+}
+
+const connectionString = withTimezone(config.DATABASE_URL, config.TIMEZONE);
+const sql = neon(connectionString);
+const pool = new Pool({ connectionString });
+pool.on('connect', client => {
+  client.query(`SET TIME ZONE '${config.TIMEZONE}'`).catch(() => {});
+});
 
 module.exports = { sql, pool };
 ```

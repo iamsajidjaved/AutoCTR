@@ -57,6 +57,7 @@ Required env vars:
 - `JWT_SECRET` — minimum 32 chars
 - `PORT` — defaults to 3000
 - `NODE_ENV` — development / production
+- `TZ` — IANA timezone for both the Node process and the Postgres session timezone (defaults to `Asia/Dubai`). The config module sets `process.env.TZ` early so all `new Date()` / `NOW()` arithmetic happens in Dubai local time.
 - `PROXY_API_KEY` — for proxy rotation (can be empty for now)
 - `REKTCAPTCHA_PATH` — path to unpacked RektCaptcha extension directory (can be empty for now)
 
@@ -101,6 +102,7 @@ JWT_SECRET=change_me_to_at_least_32_chars
 PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
+TZ=Asia/Dubai
 PROXY_API_KEY=
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
 ```

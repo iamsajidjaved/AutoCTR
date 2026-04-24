@@ -58,13 +58,13 @@ For 100 visits, 24h window, peak at 9am/1pm/6pm:
 - No two visits within 30 seconds of each other
 - Timestamps look organic (not perfectly spaced)
 
-### Geo-Based Variation (optional flag)
+### Geo-Based Variation
 ```js
 {
-  timezone: 'America/New_York'  // shift peak hours to user's timezone
+  timezone: 'Asia/Dubai'  // shift peak hours to this IANA timezone
 }
 ```
-Use `Intl.DateTimeFormat` to compute the UTC offset — no external library needed.
+Use `Intl.DateTimeFormat` to compute the local hour for each bucket — no external library needed. `trafficDistributionService` passes `config.TIMEZONE` (Dubai by default) so peak hours 9 / 13 / 18 are interpreted as Dubai-local clock hours regardless of where the worker process is hosted.
 
 ### Integration with `trafficDistributionService.js`
 Replace the temporary uniform distribution:
@@ -78,7 +78,8 @@ const timestamps = scheduler.generateTimestamps(visits.length, {
   windowHours: 24,
   peakHours: [9, 13, 18],
   peakWeight: 3,
-  minGapSeconds: 30
+  minGapSeconds: 30,
+  timezone: config.TIMEZONE,  // 'Asia/Dubai' by default
 });
 visits.forEach((v, i) => { v.scheduledAt = timestamps[i]; });
 ```
