@@ -14,6 +14,10 @@ AutoCTR is a full-stack tool that automates Google CTR (Click-Through Rate) simu
 - [Installation](#installation)
 - [Database Setup](#database-setup)
 - [Running the Project](#running-the-project)
+  - [Development Mode](#development-mode)
+  - [Production with PM2](#production-with-pm2)
+  - [First-Time Setup Walkthrough](#first-time-setup-walkthrough)
+  - [PM2 Quick Reference](#pm2-quick-reference)
 - [API Reference](#api-reference)
 - [Dashboard](#dashboard)
 - [Campaign Lifecycle](#campaign-lifecycle)
@@ -28,8 +32,8 @@ AutoCTR is a full-stack tool that automates Google CTR (Click-Through Rate) simu
 ## How It Works
 
 1. A user registers and logs in via the dashboard.
-2. The user creates a campaign — providing a target URL, keyword, total visits, CTR %, mobile/desktop split, and dwell time range.
-3. On activation, the system generates one `traffic_details` row per visit, with randomised type (click/impression), device (mobile/desktop), and a smart-scheduled timestamp spread across the next 24 hours weighted toward peak traffic hours.
+2. The user creates a campaign — providing a target URL, keyword, duration (days), day-1 visits, daily growth rate, CTR %, mobile/desktop split, and dwell time range.
+3. On activation, the system computes `required_visits` (compound growth sum) and generates one `traffic_details` row per visit, with randomised type (click/impression), device (mobile/desktop), and a smart-scheduled timestamp. Multi-day campaigns spread visits across per-day 24h windows weighted toward peak traffic hours.
 4. PM2 workers poll the database every 5 seconds, claim pending due visits, launch a stealth Puppeteer browser via a rotating proxy, navigate to Google, search the keyword, and — for clicks — click the target website and simulate on-site reading behaviour.
 5. Each visit is marked `completed` or `failed`. Once all visits are terminal, the campaign is automatically marked `completed`.
 
@@ -224,7 +228,7 @@ This is **idempotent** — safe to run multiple times. Migrations are tracked in
 
 ## Running the Project
 
-### Development
+### Development Mode
 
 Run the API server and dashboard in separate terminals:
 
@@ -236,34 +240,172 @@ npm run dev
 npm run dashboard
 ```
 
-### Production (with PM2)
+> Workers are not needed in dev mode unless you want to test visit execution. Start them separately with `node src/workers/trafficWorker.js` if needed.
+
+---
+
+### Production with PM2
+
+#### PM2 Processes
+
+| Name | Script | Instances | Mode | Purpose |
+|---|---|---|---|---|
+| `ctr-api` | `src/server.js` | 1 | fork | Express REST API |
+| `ctr-worker` | `src/workers/trafficWorker.js` | max (all CPUs) | cluster | Visit execution workers |
+
+#### Start Commands
 
 ```bash
-# Start everything
+# Start everything at once
 pm2 start ecosystem.config.js
 
-# Start only the API
+# Or start processes individually
 pm2 start ecosystem.config.js --only ctr-api
-
-# Start only the workers (scales to all CPU cores)
 pm2 start ecosystem.config.js --only ctr-worker
-
-# View logs
-pm2 logs
-
-# Monitor
-pm2 monit
-
-# Stop all
-pm2 stop all
 ```
 
-PM2 processes:
+#### Monitoring
 
-| Name | Script | Instances | Mode |
-|---|---|---|---|
-| `ctr-api` | `src/server.js` | 1 | fork |
-| `ctr-worker` | `src/workers/trafficWorker.js` | max (all CPUs) | cluster |
+```bash
+# Real-time process monitor (CPU, memory, restarts)
+pm2 monit
+
+# Check all process statuses at a glance
+pm2 status
+
+# Stream logs (all processes)
+pm2 logs
+
+# Stream logs for a specific process
+pm2 logs ctr-api
+pm2 logs ctr-worker
+
+# View last N lines
+pm2 logs ctr-worker --lines 50
+```
+
+#### Persist Across Reboots
+
+```bash
+# Save current PM2 process list
+pm2 save
+
+# Register PM2 as a system startup service (follow the printed command)
+pm2 startup
+```
+
+---
+
+### First-Time Setup Walkthrough
+
+Follow these steps in order the first time you run AutoCTR:
+
+**1. Install PM2 globally**
+```bash
+npm install -g pm2
+```
+
+**2. Install all dependencies**
+```bash
+# Backend
+npm install
+
+# Dashboard
+cd dashboard && npm install && cd ..
+```
+
+**3. Configure environment**
+
+Ensure `.env` in the project root has these values set:
+```
+DATABASE_URL=...        ← Neon connection string
+JWT_SECRET=...          ← Long random string
+SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
+REKTCAPTCHA_PATH=...    ← Path to unpacked RektCaptcha extension
+```
+
+Ensure `dashboard/.env.local` contains:
+```
+NEXT_PUBLIC_API_URL=http://localhost:3000
+```
+
+**4. Run database migrations**
+```bash
+npm run db:migrate
+```
+You should see each migration filename logged. Run again to confirm it's idempotent.
+
+**5. Start the API server**
+```bash
+pm2 start ecosystem.config.js --only ctr-api
+```
+Verify:
+```bash
+pm2 logs ctr-api --lines 20
+# Expected: "Server running on port 3000"
+```
+
+**6. Start the dashboard**
+```bash
+npm run dashboard
+```
+Open `http://localhost:3001` in your browser.
+
+**7. Register an account and create a campaign**
+1. Go to `http://localhost:3001/register` and create your account
+2. Navigate to **New Campaign**
+3. Fill in: Website URL, Keyword, Duration (days), Day 1 Visits, Daily Increase %, CTR %, Mobile %, Min/Max Dwell Time
+4. The form shows an **Estimated total visits** preview in real time
+5. Click **Create & Activate Campaign**
+6. You'll be redirected to the campaign detail page — status will show `running`
+
+**8. Start the workers**
+```bash
+pm2 start ecosystem.config.js --only ctr-worker
+```
+Watch visits being processed:
+```bash
+pm2 logs ctr-worker
+```
+Expected output:
+```
+[worker-1234] fetched 5 jobs
+[worker-1234] job abc-123 starting (type=click, device=mobile)
+[worker-1234] job abc-123 completed
+[worker-1234] job def-456 starting (type=impression, device=desktop)
+[worker-1234] job def-456 completed
+```
+
+The campaign detail page on the dashboard auto-refreshes every 5 seconds, showing live progress until the campaign reaches `completed`.
+
+**9. Save PM2 state**
+```bash
+pm2 save
+pm2 startup   # follow the printed command
+```
+
+---
+
+### PM2 Quick Reference
+
+| Action | Command |
+|---|---|
+| Start API | `pm2 start ecosystem.config.js --only ctr-api` |
+| Start workers | `pm2 start ecosystem.config.js --only ctr-worker` |
+| Start everything | `pm2 start ecosystem.config.js` |
+| Stop workers | `pm2 stop ctr-worker` |
+| Stop API | `pm2 stop ctr-api` |
+| Stop everything | `pm2 stop all` |
+| Restart workers | `pm2 restart ctr-worker` |
+| Restart API | `pm2 restart ctr-api` |
+| Reload workers (zero-downtime) | `pm2 reload ctr-worker` |
+| View all processes | `pm2 status` |
+| Live monitor | `pm2 monit` |
+| Stream all logs | `pm2 logs` |
+| Clear all logs | `pm2 flush` |
+| Remove all from PM2 | `pm2 delete all` |
+| Save process list | `pm2 save` |
+| Register startup service | `pm2 startup` |
 
 ---
 
@@ -299,7 +441,9 @@ All campaign routes require `Authorization: Bearer <token>`.
 {
   "website": "https://example.com",
   "keyword": "buy widgets online",
-  "required_visits": 1000,
+  "campaign_duration_days": 30,
+  "initial_daily_visits": 100,
+  "daily_increase_pct": 10,
   "ctr": 5,
   "mobile_desktop_ratio": 60,
   "min_dwell_seconds": 30,
@@ -311,11 +455,18 @@ All campaign routes require `Authorization: Bearer <token>`.
 |---|---|---|---|
 | `website` | string | valid URL | Target website |
 | `keyword` | string | max 200 chars | Google search keyword |
-| `required_visits` | integer | 1–100,000 | Total visits to simulate |
+| `campaign_duration_days` | integer | 1–365 | How many days to run |
+| `initial_daily_visits` | integer | 1–10,000 | Visits on day 1 |
+| `daily_increase_pct` | float | 0–100 | Compound daily growth rate (e.g. 10 = +10%/day) |
 | `ctr` | integer | 1–100 | % of visits that click through |
 | `mobile_desktop_ratio` | integer | 0–100 | % of visits from mobile devices |
 | `min_dwell_seconds` | integer | 10–1800 | Min time on site (clicks only) |
 | `max_dwell_seconds` | integer | ≥ min, ≤ 1800 | Max time on site (clicks only) |
+
+> `required_visits` is **computed server-side** as the sum of all daily visit counts and is not accepted from the client.  
+> Formula: `SUM(round(initial_daily_visits × (1 + daily_increase_pct/100)^d))` for d = 0 … duration−1.  
+> Example: 30 days, 100 day-1 visits, 10% growth → ~1,645 total visits.  
+> Maximum: 1,000,000 total visits (returns 400 if exceeded).
 
 ### Progress Response
 

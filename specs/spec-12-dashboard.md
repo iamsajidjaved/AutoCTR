@@ -84,13 +84,20 @@ dashboard/
 - `+ New Campaign` button
 
 #### New Campaign (`/dashboard/campaigns/new`)
-- Fields: Website URL, Keyword, Total Visits (1–100k), CTR % (1–100), Mobile % (slider), Min/Max Dwell
-- Client-side validation (URL constructor, range checks, max >= min)
+- **Traffic Schedule section** (grouped card):
+  - Duration (days) — integer, 1–365
+  - Day 1 Visits — integer, 1–10,000
+  - Daily Increase % — float, 0–100 (compound growth rate)
+  - Live preview: "Estimated total visits: X" (turns red if > 1,000,000)
+- CTR % (1–100), Mobile % slider (0–100)
+- Min/Max Dwell seconds
+- Client-side validation (URL constructor, range checks, max >= min, total < 1M)
+- Submit button disabled when total > 1,000,000
 - On submit: `POST /api/campaigns` → `POST /api/campaigns/:id/activate` → redirect to detail page
 
 #### Campaign Detail (`/dashboard/campaigns/:id`)
 - Header: keyword, website link, status badge, action button (Start/Pause/Restart)
-- Info grid: visits, CTR, min/max dwell
+- Info grid: Total Visits, CTR, Duration, Mobile %, (Day 1 Visits + Daily Increase % shown only for multi-day campaigns), Min/Max Dwell
 - Progress card: `ProgressBar`, 4 status count boxes
 - Polls `GET /api/campaigns/:id/progress` every 5s while `running`, stops when `completed` or `paused`
 
@@ -131,6 +138,9 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 - [ ] Pause button pauses a running campaign immediately
 - [ ] Restart button restarts a paused/completed campaign from scratch
 - [ ] Delete works for non-running campaigns
+- [ ] New campaign form shows Duration, Day 1 Visits, Daily Increase % fields with live total preview
+- [ ] Submit button disabled when computed total exceeds 1,000,000
+- [ ] Detail page shows campaign duration, Day 1 visits, and daily increase % for multi-day campaigns
 - [ ] New campaign form validates URL client-side before submitting
 - [ ] Detail page polls every 5 seconds while running, stops when completed/paused
 - [ ] `paused` status renders yellow badge

@@ -14,11 +14,13 @@ function validate(body) {
   const {
     website,
     keyword,
-    required_visits,
     ctr,
     mobile_desktop_ratio,
     min_dwell_seconds = 30,
     max_dwell_seconds = 120,
+    campaign_duration_days = 1,
+    initial_daily_visits,
+    daily_increase_pct = 0,
   } = body;
 
   try { new URL(website); } catch {
@@ -30,10 +32,6 @@ function validate(body) {
   }
   if (keyword.length > 200) {
     throw validationError('keyword', 'Keyword must be 200 characters or fewer');
-  }
-
-  if (!Number.isInteger(required_visits) || required_visits < 1 || required_visits > 100000) {
-    throw validationError('required_visits', 'required_visits must be an integer between 1 and 100000');
   }
 
   if (!Number.isInteger(ctr) || ctr < 1 || ctr > 100) {
@@ -52,7 +50,41 @@ function validate(body) {
     throw validationError('max_dwell_seconds', 'max_dwell_seconds must be an integer >= min_dwell_seconds and <= 1800');
   }
 
-  return { website, keyword: keyword.trim(), required_visits, ctr, mobile_desktop_ratio, min_dwell_seconds, max_dwell_seconds };
+  if (!Number.isInteger(campaign_duration_days) || campaign_duration_days < 1 || campaign_duration_days > 365) {
+    throw validationError('campaign_duration_days', 'campaign_duration_days must be an integer between 1 and 365');
+  }
+
+  if (!Number.isInteger(initial_daily_visits) || initial_daily_visits < 1 || initial_daily_visits > 10000) {
+    throw validationError('initial_daily_visits', 'initial_daily_visits must be an integer between 1 and 10000');
+  }
+
+  const pct = Number(daily_increase_pct);
+  if (isNaN(pct) || pct < 0 || pct > 100) {
+    throw validationError('daily_increase_pct', 'daily_increase_pct must be a number between 0 and 100');
+  }
+
+  // Compute total visits across all days (compound growth)
+  let required_visits = 0;
+  for (let day = 0; day < campaign_duration_days; day++) {
+    required_visits += Math.round(initial_daily_visits * Math.pow(1 + pct / 100, day));
+  }
+
+  if (required_visits > 1000000) {
+    throw validationError('daily_increase_pct', `Computed total visits (${required_visits.toLocaleString()}) exceeds the 1,000,000 limit. Reduce duration or increase rate.`);
+  }
+
+  return {
+    website,
+    keyword: keyword.trim(),
+    ctr,
+    mobile_desktop_ratio,
+    min_dwell_seconds,
+    max_dwell_seconds,
+    campaign_duration_days,
+    initial_daily_visits,
+    daily_increase_pct: pct,
+    required_visits,
+  };
 }
 
 async function createCampaign(userId, body) {
@@ -66,6 +98,9 @@ async function createCampaign(userId, body) {
     mobileDesktopRatio: fields.mobile_desktop_ratio,
     minDwellSeconds: fields.min_dwell_seconds,
     maxDwellSeconds: fields.max_dwell_seconds,
+    campaignDurationDays: fields.campaign_duration_days,
+    initialDailyVisits: fields.initial_daily_visits,
+    dailyIncreasePct: fields.daily_increase_pct,
   });
 }
 

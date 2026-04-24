@@ -15,9 +15,13 @@ interface Campaign {
   website: string;
   required_visits: number;
   ctr: number;
+  mobile_desktop_ratio: number;
   status: string;
   min_dwell_seconds: number;
   max_dwell_seconds: number;
+  campaign_duration_days: number;
+  initial_daily_visits: number | null;
+  daily_increase_pct: string | null;
   created_at: string;
 }
 
@@ -159,6 +163,26 @@ export default function CampaignDetailPage() {
               <p className="text-gray-500 text-xs mb-0.5">CTR</p>
               <p className="text-white font-semibold">{campaign.ctr}%</p>
             </div>
+            <div className="bg-gray-800 rounded-lg p-3">
+              <p className="text-gray-500 text-xs mb-0.5">Duration</p>
+              <p className="text-white font-semibold">{campaign.campaign_duration_days} day{campaign.campaign_duration_days !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-gray-800 rounded-lg p-3">
+              <p className="text-gray-500 text-xs mb-0.5">Mobile Traffic</p>
+              <p className="text-white font-semibold">{campaign.mobile_desktop_ratio}%</p>
+            </div>
+            {campaign.initial_daily_visits != null && (
+              <>
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-gray-500 text-xs mb-0.5">Day 1 Visits</p>
+                  <p className="text-white font-semibold">{campaign.initial_daily_visits.toLocaleString()}</p>
+                </div>
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-gray-500 text-xs mb-0.5">Daily Increase</p>
+                  <p className="text-white font-semibold">{Number(campaign.daily_increase_pct)}%</p>
+                </div>
+              </>
+            )}
             <div className="bg-gray-800 rounded-lg p-3">
               <p className="text-gray-500 text-xs mb-0.5">Min Dwell</p>
               <p className="text-white font-semibold">{campaign.min_dwell_seconds}s</p>

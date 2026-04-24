@@ -1,11 +1,15 @@
 const { sql } = require('./db');
 
-async function create({ userId, website, keyword, requiredVisits, ctr, mobileDesktopRatio, minDwellSeconds, maxDwellSeconds }) {
+async function create({ userId, website, keyword, requiredVisits, ctr, mobileDesktopRatio, minDwellSeconds, maxDwellSeconds, campaignDurationDays, initialDailyVisits, dailyIncreasePct }) {
   const rows = await sql`
     INSERT INTO traffic_summaries
-      (user_id, website, keyword, required_visits, ctr, mobile_desktop_ratio, min_dwell_seconds, max_dwell_seconds)
+      (user_id, website, keyword, required_visits, ctr, mobile_desktop_ratio,
+       min_dwell_seconds, max_dwell_seconds,
+       campaign_duration_days, initial_daily_visits, daily_increase_pct)
     VALUES
-      (${userId}, ${website}, ${keyword}, ${requiredVisits}, ${ctr}, ${mobileDesktopRatio}, ${minDwellSeconds}, ${maxDwellSeconds})
+      (${userId}, ${website}, ${keyword}, ${requiredVisits}, ${ctr}, ${mobileDesktopRatio},
+       ${minDwellSeconds}, ${maxDwellSeconds},
+       ${campaignDurationDays}, ${initialDailyVisits ?? null}, ${dailyIncreasePct ?? 0})
     RETURNING *
   `;
   return rows[0];

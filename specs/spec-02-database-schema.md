@@ -23,6 +23,7 @@ src/
     003_create_traffic_details.sql
     004_create_migrations_table.sql   ← tracks which ran
     005_add_paused_status.sql         ← adds 'paused' to campaign_status enum
+    006_add_campaign_duration.sql     ← multi-day campaign fields
 ```
 
 Add to `package.json` scripts:
@@ -82,6 +83,9 @@ CREATE TABLE IF NOT EXISTS traffic_summaries (
   min_dwell_seconds INTEGER NOT NULL DEFAULT 30 CHECK (min_dwell_seconds >= 10),
   max_dwell_seconds INTEGER NOT NULL DEFAULT 120 CHECK (max_dwell_seconds >= min_dwell_seconds AND max_dwell_seconds <= 1800),
   status campaign_status NOT NULL DEFAULT 'pending',
+  campaign_duration_days  INTEGER        NOT NULL DEFAULT 1,
+  initial_daily_visits    INTEGER,
+  daily_increase_pct      NUMERIC(5, 2)  NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -120,6 +124,16 @@ CREATE INDEX IF NOT EXISTS idx_traffic_details_summary
 ALTER TYPE campaign_status ADD VALUE IF NOT EXISTS 'paused';
 ```
 
+#### `006_add_campaign_duration.sql`
+```sql
+ALTER TABLE traffic_summaries
+  ADD COLUMN IF NOT EXISTS campaign_duration_days  INTEGER        NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS initial_daily_visits    INTEGER,
+  ADD COLUMN IF NOT EXISTS daily_increase_pct      NUMERIC(5, 2)  NOT NULL DEFAULT 0;
+```
+- `initial_daily_visits = NULL` → legacy single-day distribution path (backward compatible)
+- `initial_daily_visits IS NOT NULL` → multi-day compound growth path
+
 ---
 
 ## Acceptance Criteria
@@ -129,3 +143,4 @@ ALTER TYPE campaign_status ADD VALUE IF NOT EXISTS 'paused';
 - [ ] ENUMs and FK constraints are in place
 - [ ] The poll index on `traffic_details` exists
 - [ ] `campaign_status` enum includes `paused` value
+- [ ] Migration 006 adds `campaign_duration_days`, `initial_daily_visits`, `daily_increase_pct` columns to `traffic_summaries`

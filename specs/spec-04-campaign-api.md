@@ -31,8 +31,8 @@ src/
 
 ### `src/models/campaignModel.js`
 ```js
-create({ userId, website, keyword, requiredVisits, ctr, mobileDesktopRatio, minDwellSeconds, maxDwellSeconds })
-  → inserts into traffic_summaries, returns row
+create({ userId, website, keyword, requiredVisits, ctr, mobileDesktopRatio, minDwellSeconds, maxDwellSeconds, campaignDurationDays, initialDailyVisits, dailyIncreasePct })
+  → inserts into traffic_summaries (including duration/daily fields), returns row
 
 findAllByUser(userId)
   → SELECT ... WHERE user_id = userId ORDER BY created_at DESC
@@ -101,11 +101,18 @@ restartCampaign(id, userId)
 ### Validation (in service layer)
 - `website` — must be a valid URL (use `new URL(...)`)
 - `keyword` — non-empty string, max 200 chars
-- `required_visits` — integer, 1–100000
+- `campaign_duration_days` — integer, 1–365 (default: 1)
+- `initial_daily_visits` — integer, 1–10000 (visits on day 1)
+- `daily_increase_pct` — float, 0–100 (default: 0); compound daily growth rate
 - `ctr` — integer, 1–100
 - `mobile_desktop_ratio` — integer, 0–100
 - `min_dwell_seconds` — integer, 10–1800 (default: 30 if omitted)
 - `max_dwell_seconds` — integer, >= `min_dwell_seconds`, <= 1800 (default: 120 if omitted)
+- `required_visits` is **computed** from the three schedule fields (not supplied by client):
+  ```
+  required_visits = SUM(round(initial_daily_visits * (1 + daily_increase_pct/100)^d)) for d=0..duration-1
+  ```
+  Maximum computed total: 1,000,000 (returns 400 if exceeded)
 - Return 400 with `{ error, field }` for each violation
 
 ### Routes (`src/routes/campaigns.js`)
@@ -128,11 +135,14 @@ GET    /api/campaigns/:id/progress → progress counts → 200
   "id": "uuid",
   "website": "https://example.com",
   "keyword": "buy widgets",
-  "required_visits": 1000,
+  "required_visits": 3310,
   "ctr": 5,
   "mobile_desktop_ratio": 60,
   "min_dwell_seconds": 30,
   "max_dwell_seconds": 120,
+  "campaign_duration_days": 30,
+  "initial_daily_visits": 100,
+  "daily_increase_pct": "10.00",
   "status": "pending",
   "created_at": "2026-04-24T...",
   "updated_at": "2026-04-24T..."

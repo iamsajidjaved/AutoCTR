@@ -30,30 +30,49 @@ src/
 
 ### Distribution Algorithm (`trafficDistributionService.js`)
 
-Input: campaign row from `traffic_summaries`
+The service exports a single `generateVisits(campaign)` function that detects the campaign mode:
+
+#### Multi-day mode (`initial_daily_visits != null`)
+
+Campaign has `campaign_duration_days`, `initial_daily_visits`, and `daily_increase_pct`.
 
 ```
-totalVisits = required_visits
-totalClicks = Math.round(required_visits * ctr / 100)
-totalImpressions = totalVisits - totalClicks
-
-mobileCount = Math.round(totalVisits * mobile_desktop_ratio / 100)
-desktopCount = totalVisits - mobileCount
+For each day d = 0 .. campaign_duration_days - 1:
+  dayVisits = Math.round(initial_daily_visits * (1 + daily_increase_pct/100)^d)
+  dayStart  = NOW() + d * 24h
+  generate dayVisits visit rows with scheduledAt inside [dayStart, dayStart+24h]
 ```
 
-Build an array of `totalVisits` visit objects:
-- First, assign types: shuffle an array of `totalClicks` clicks + `totalImpressions` impressions
-- Then, assign devices: shuffle an array of `mobileCount` mobiles + `desktopCount` desktops
-- Zip type + device together
-
-For timestamps: use the smart scheduling utility from spec-10. For now (before spec-10), spread visits uniformly across a 24-hour window starting from `NOW()`.
-
-```js
-// Temporary scheduling (replaced by spec-10):
-const windowMs = 24 * 60 * 60 * 1000;
-const intervalMs = windowMs / totalVisits;
-visits[i].scheduledAt = new Date(Date.now() + i * intervalMs);
+Per-day visit generation (`buildDayVisits`):
 ```
+dayClicks      = Math.round(dayVisits * ctr / 100)
+dayImpressions = dayVisits - dayClicks
+dayMobile      = Math.round(dayVisits * mobile_desktop_ratio / 100)
+dayDesktop     = dayVisits - dayMobile
+
+types   = shuffle([...clicks, ...impressions])
+devices = shuffle([...mobiles, ...desktops])
+timestamps = scheduler.generateTimestamps(dayVisits, {
+  startAt: dayStart,
+  windowHours: 24,
+  peakHours: [9, 13, 18],
+  peakWeight: 3,
+  minGapSeconds: 30,
+})
+```
+
+#### Legacy single-day mode (`initial_daily_visits == null`)
+
+Backward-compatible path for old campaigns. Uses `required_visits` directly:
+
+```
+totalClicks  = Math.round(required_visits * ctr / 100)
+totalImpressions = required_visits - totalClicks
+...same shuffle + timestamp logic with startAt = NOW(), windowHours = 24
+```
+
+#### Helper: `buildDayVisits(dayVisits, ctr, mobileRatio, dayStart)`
+Shared between both modes — generates the type/device/timestamp arrays for one day slice.
 
 ### `src/models/trafficDetailModel.js`
 ```js
@@ -104,9 +123,11 @@ POST /api/campaigns/:id/activate
 
 ## Acceptance Criteria
 - [ ] `POST /api/campaigns/:id/activate` on a pending campaign creates correct count of `traffic_details` rows
-- [ ] Total rows = `required_visits`
-- [ ] Click rows = `Math.round(required_visits * ctr / 100)`
-- [ ] Mobile rows = `Math.round(required_visits * mobile_desktop_ratio / 100)`
+- [ ] Multi-day: total rows = SUM of per-day rounded visit counts
+- [ ] Single-day (legacy): total rows = `required_visits`
+- [ ] Click rows per day = `Math.round(dayVisits * ctr / 100)`
+- [ ] Mobile rows per day = `Math.round(dayVisits * mobile_desktop_ratio / 100)`
+- [ ] Multi-day: each day's visits are scheduled within its own 24h window
 - [ ] All rows start with `status=pending`
 - [ ] Campaign `status` changes to `running`
 - [ ] Activating an already-running campaign returns 409
