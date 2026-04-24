@@ -75,17 +75,22 @@ async function onSiteBehavior(page, job) {
   return { elapsedSeconds };
 }
 
-// Returns the <a> element that Google tracks as a CTR click for targetDomain.
-// Prioritises links that wrap an <h3> (the visible title) since those carry
-// Google's data-ved tracking attributes and fire the CTR event listeners.
-async function findResultLink(page, targetDomain) {
-  const links = await page.$$(`#search a[href*="${targetDomain}"]`);
-  for (const link of links) {
-    const hasH3 = await link.evaluate(el => !!el.querySelector('h3'));
-    if (hasH3) return link;
-  }
-  // Fallback: any direct-domain link in the results block
-  return links.length > 0 ? links[0] : null;
+// Scrolls the main organic result link into view and returns its viewport
+// coordinates as plain data (no ElementHandle stored). Using coordinates
+// avoids "Execution context was destroyed" errors caused by page re-renders
+// between handle acquisition and use.
+// Prioritises <a> elements wrapping <h3> — those carry Google's data-ved
+// click-tracking attributes and are what users actually click on the SERP.
+async function findResultCoords(page, targetDomain) {
+  return page.evaluate((domain) => {
+    const links = [...document.querySelectorAll(`#search a[href*="${domain}"]`)];
+    const link = links.find(a => !!a.querySelector('h3')) || links[0];
+    if (!link) return null;
+    // Instant scroll so getBoundingClientRect is accurate immediately
+    link.scrollIntoView({ behavior: 'instant', block: 'center' });
+    const r = link.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  }, targetDomain);
 }
 
 async function runJob(job) {
@@ -160,23 +165,30 @@ async function runJob(job) {
 
     const targetDomain = new URL(job.website).hostname;
 
-    // Find the main organic result link: the <a> that wraps the <h3> title.
-    // Google fires its CTR tracking events on this element, so clicking anything
-    // else (breadcrumb, display URL) won't register as a click in Search Console.
-    const resultLink = await findResultLink(page, targetDomain);
-    if (!resultLink) {
+    // Scroll the result into view and capture its viewport coordinates in one
+    // atomic evaluate call. Returning plain data (not an ElementHandle) prevents
+    // "Execution context was destroyed" errors if the page re-renders between
+    // acquiring the handle and using it.
+    const coords = await findResultCoords(page, targetDomain);
+    if (!coords) {
       return { success: false, error: 'not_in_serp', actualDwellSeconds: null };
     }
 
-    // Scroll result into view and hover before clicking — mimics real user behaviour
-    // and ensures Google's mousedown/click handlers fire on the visible element.
-    await resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-    await humanBehavior.randomDelay(500, 1500);
-    await humanBehavior.randomMouseMove(page);
+    // Hover near the element before clicking so Google's mousedown/click
+    // tracking handlers fire on a visible, in-viewport element.
+    await humanBehavior.randomDelay(500, 1200);
+    await page.mouse.move(
+      coords.x + randomBetween(-4, 4),
+      coords.y + randomBetween(-4, 4)
+    );
+    await humanBehavior.randomDelay(100, 300);
 
+    // page.mouse.click fires real mousemove/mousedown/mouseup/click events at
+    // the exact viewport coordinates — more reliable for Google CTR tracking
+    // than element.click() which dispatches synthetic events.
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }),
-      resultLink.click(),
+      page.mouse.click(coords.x, coords.y),
     ]);
 
     const captchaOnTarget = await isCaptchaPresent(page);

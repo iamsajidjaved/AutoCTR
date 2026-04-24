@@ -120,10 +120,11 @@ async executeJob(job)
         return { success: true, actualDwellSeconds: null }
   14. If job.type === 'click':
         // Click/Visit: find and click target site in SERP, then interact on-site.
-        a. findResultLink(page, targetDomain) — see helper below
-        b. resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }))
-        c. randomDelay(500, 1500) + randomMouseMove(page)  ← hover before clicking
-        d. Promise.all([waitForNavigation, resultLink.click()])
+        a. findResultCoords(page, targetDomain) → { x, y } or null — see helper below
+           (scroll + coords resolved in one page.evaluate; no ElementHandle stored)
+        b. randomDelay(500, 1200) + page.mouse.move(x±4, y±4)  ← hover near element
+        c. randomDelay(100, 300)
+        d. Promise.all([waitForNavigation, page.mouse.click(x, y)])
         e. const dwellResult = await onSiteBehavior(page, job)
         f. return { success: true, actualDwellSeconds: dwellResult.elapsedSeconds }
   15. Close browser (in finally block)
@@ -207,27 +208,33 @@ Timeout entire job at `max_dwell_seconds * 1.5 + 60` seconds (dwell + navigation
 ### CAPTCHA Detection (stub)
 For now: detect `#captcha-form` or `iframe[src*="recaptcha"]`, log warning, return `{ success: false, error: 'captcha', actualDwellSeconds: null }`. Full solving via RektCaptcha Chrome extension is implemented in spec-09.
 
-### Finding the Target URL in Search Results (`findResultLink`)
+### Finding the Target URL in Search Results (`findResultCoords`)
 
-Google attaches CTR tracking listeners to the `<a>` element that wraps the `<h3>` title. Clicking any other `<a>` in the result block (display URL, breadcrumb) will **not** register in Google Search Console as a click. The helper prioritises those title links:
+Google attaches CTR tracking listeners to the `<a>` element wrapping the `<h3>` title. Clicking other `<a>` elements in the result block (display URL, breadcrumb) will **not** register in Google Search Console.
+
+**Important:** Do not store `ElementHandle` objects across delays. After a CAPTCHA redirect, Google's SERP JS may re-render results, destroying the execution context and causing `"Execution context was destroyed"` errors. The helper resolves everything in a single `page.evaluate` call and returns plain viewport coordinates:
 
 ```js
-async function findResultLink(page, targetDomain) {
-  const links = await page.$$(`#search a[href*="${targetDomain}"]`);
-  // Prefer links that wrap an <h3> — these carry Google's data-ved click tracking
-  for (const link of links) {
-    const hasH3 = await link.evaluate(el => !!el.querySelector('h3'));
-    if (hasH3) return link;
-  }
-  return links.length > 0 ? links[0] : null;  // fallback
+async function findResultCoords(page, targetDomain) {
+  return page.evaluate((domain) => {
+    const links = [...document.querySelectorAll(`#search a[href*="${domain}"]`)];
+    const link = links.find(a => !!a.querySelector('h3')) || links[0];
+    if (!link) return null;
+    link.scrollIntoView({ behavior: 'instant', block: 'center' });
+    const r = link.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  }, targetDomain);
 }
 ```
 
-Before clicking, scroll the element into view and hover with mouse movement so Google's `mousedown` handlers fire on the visible, in-viewport element (required for CTR to register):
+Use `page.mouse.click(x, y)` (not `element.click()`) — it fires real `mousemove`/`mousedown`/`mouseup`/`click` events at exact viewport coordinates, which is what Google's tracking listeners require:
 ```js
-await resultLink.evaluate(el => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
-await humanBehavior.randomDelay(500, 1500);
-await humanBehavior.randomMouseMove(page);
+await page.mouse.move(coords.x + offset, coords.y + offset);
+await humanBehavior.randomDelay(100, 300);
+await Promise.all([
+  page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }),
+  page.mouse.click(coords.x, coords.y),
+]);
 ```
 
 ---
