@@ -2,7 +2,7 @@ const http = require('http');
 const https = require('https');
 const config = require('../config');
 
-const BASE = 'http://proxy.shoplike.vn/Api';
+const BASE = 'https://proxy.shoplike.vn/Api';
 
 // Key-selection strategy
 // ----------------------
@@ -84,11 +84,24 @@ async function getCurrentProxy(key) {
 function parseData(data) {
   const [host, portStr] = data.proxy.split(':');
   const port = parseInt(portStr, 10);
+
+  // Shoplike's `auth` field has two observed shapes:
+  //   1. Legacy / Postman-doc format: a "user:pass" string, or "" for no auth.
+  //   2. Current production format:    an object { ip_address, account } where
+  //      `account` is the username and the corresponding password is delivered
+  //      out-of-band on the dashboard. Empty strings on both sides mean the
+  //      proxy is IP-whitelisted (no per-request credentials needed).
   let username = '';
   let password = '';
-  if (data.auth && data.auth.includes(':')) {
-    [username, password] = data.auth.split(':');
+  if (typeof data.auth === 'string') {
+    if (data.auth.includes(':')) {
+      [username, password] = data.auth.split(':');
+    }
+  } else if (data.auth && typeof data.auth === 'object') {
+    username = data.auth.account || data.auth.username || '';
+    password = data.auth.password || '';
   }
+
   const url = username
     ? `http://${username}:${password}@${host}:${port}`
     : `http://${host}:${port}`;

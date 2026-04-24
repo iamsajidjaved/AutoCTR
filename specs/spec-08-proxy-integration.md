@@ -26,7 +26,12 @@ src/
 
 ## Provider: Shop Like Proxy
 
-**Base URL:** `http://proxy.shoplike.vn/Api`
+**Base URL:** `https://proxy.shoplike.vn/Api`
+
+> The API now serves a **301 redirect from HTTP → HTTPS**, and Node's raw
+> `http.get` does not follow redirects. The provider must call the HTTPS URL
+> directly, otherwise the response body is the 301 HTML page and JSON parsing
+> fails ("non-JSON response").
 
 ---
 
@@ -43,14 +48,23 @@ GET /Api/getNewProxy
 {
   "status": "success",
   "data": {
-    "location": "kh",
-    "proxy": "171.213.50.88:5000",
-    "auth": "",
-    "nextChange": 60,
+    "location": "tb",
+    "proxy": "171.245.24.19:13994",
+    "auth": { "ip_address": "", "account": "" },
+    "nextChange": 300,
     "proxyTimeout": 1800
   }
 }
 ```
+
+> **`auth` field shape changed.** The Postman documentation example shows
+> `"auth": ""` (empty string) or `"auth": "user:pass"`. Production responses
+> now return an **object** `{ ip_address, account }` where `account` is the
+> username and the corresponding password is delivered out-of-band on the
+> Shoplike dashboard. Empty strings on both fields mean the proxy is
+> IP-whitelisted (no per-request credentials needed). The provider must accept
+> both shapes — calling `data.auth.includes(':')` blindly throws on the object
+> form and is the root cause of repeated `proxy_unavailable` errors.
 
 **Error — key expired/invalid:**
 ```json
@@ -101,8 +115,8 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ### Response field notes
 - `proxy`: `"host:port"` string
-- `auth`: `""` when no credentials needed, or `"username:password"` when required
-- `nextChange`: seconds until a new proxy can be requested
+- `auth`: either `""` / `"username:password"` (legacy) **or** `{ ip_address, account, ... }` (current). Empty fields = no auth.
+- `nextChange`: seconds until a new proxy can be requested (currently ~300s in production)
 - `proxyTimeout`: total seconds the current proxy remains valid
 
 ---
