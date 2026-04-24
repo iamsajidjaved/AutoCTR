@@ -69,7 +69,8 @@ autoctr/
 │   │   ├── 002_create_traffic_summaries.sql
 │   │   ├── 003_create_traffic_details.sql
 │   │   ├── 004_create_migrations_table.sql
-│   │   └── 005_add_paused_status.sql
+│   │   ├── 005_add_paused_status.sql
+│   │   └── 006_add_campaign_duration.sql
 │   ├── models/
 │   │   ├── db.js                   ← Neon client (sql + pool)
 │   │   ├── migrate.js              ← Migration runner CLI
@@ -641,7 +642,10 @@ Visits within peak windows are 3× more likely to be scheduled than off-peak slo
 → Run `npm install` inside the `dashboard/` folder.
 
 **`required_visits must be an integer` on campaign create**
-→ Ensure all numeric form fields are sent as integers in the API request body (snake_case field names).
+→ Ensure all numeric form fields are sent as integers in the API request body (snake_case field names). If you've recently changed validation rules and the new bounds aren't being applied, a stale `node src/server.js` process may be holding port 3000, preventing PM2's `ctr-api` from binding. Run `Get-NetTCPConnection -LocalPort 3000 -State Listen` and kill any non-PM2 owner.
+
+**End-to-end smoke test**
+→ Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-test.ps1` to exercise register / login / full campaign CRUD lifecycle (create → activate → pause → restart → delete) plus cross-tenant isolation checks against `http://localhost:3000`.
 
 **Workers not picking up jobs**
 → Confirm `npm run db:migrate` has been run (migration 005 adds the `paused` enum value). Without it, the `campaign_status` type doesn't include `paused` and queries may fail.
