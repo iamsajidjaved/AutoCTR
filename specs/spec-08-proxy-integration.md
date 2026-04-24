@@ -109,24 +109,52 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ### `src/providers/shoplikeProxy.js`
 
-Strategy: maintains a **round-robin key pool** across all concurrent jobs in the process. Each call to `getNewProxy()` picks the next key from `SHOPLIKE_API_KEYS`, rotating through the full pool. This ensures concurrent jobs use different keys and therefore receive different IPs from the API.
+Strategy: **one key pinned per PM2 worker process** via `NODE_APP_INSTANCE`
+(PM2 cluster sets this to a unique 0-based index per fork). Each Shoplike key is
+a single rotating IP slot — two callers hitting the same key in rapid succession
+share whatever IP is currently bound to it because rotation is gated server-side
+by `nextChange` (~60s). Pinning per-process therefore maximises IP diversity
+across concurrent workers without fighting the rotation window.
+
+With **N keys** and **M PM2 workers**:
+- `M ≤ N` — every worker has its own key; concurrent jobs across workers always
+  use distinct rotating IPs.
+- `M > N` — keys wrap deterministically (`worker_idx % N`); two workers may
+  share a key (and therefore an IP), but a worker never bounces between keys.
+
+The in-process `MAX_CONCURRENT_JOBS` (3) means up to 3 jobs may run concurrently
+inside the same worker; they intentionally share the worker's single key (and
+its current IP) until the next rotation window opens — this matches the
+documented Shoplike behaviour.
+
+When `NODE_APP_INSTANCE` is unset (e.g. running the worker directly via
+`node src/workers/trafficWorker.js` outside PM2), the picker falls back to a
+process-local round-robin counter so dev mode still works.
 
 ```js
-// keyIndex rotates per-process: job 1 → key[0], job 2 → key[1], job 3 → key[2], etc.
-let keyIndex = 0;
+let rrIndex = 0;
 
-function nextKey() {
-  const keys = config.SHOPLIKE_API_KEYS;  // parsed from comma-separated env var
+function pickKey() {
+  const keys = config.SHOPLIKE_API_KEYS;
   if (!keys || keys.length === 0) throw new Error('No SHOPLIKE_API_KEYS configured');
-  const key = keys[keyIndex % keys.length];
-  keyIndex = (keyIndex + 1) % keys.length;
+
+  const pmInstance = process.env.NODE_APP_INSTANCE;
+  if (pmInstance !== undefined && pmInstance !== '') {
+    const idx = parseInt(pmInstance, 10);
+    if (Number.isInteger(idx) && idx >= 0) {
+      return keys[idx % keys.length];   // pinned: this PM2 fork always uses the same key
+    }
+  }
+
+  const key = keys[rrIndex % keys.length];   // dev fallback: round-robin
+  rrIndex = (rrIndex + 1) % keys.length;
   return key;
 }
 
 async function getNewProxy() {
-  const key = nextKey();
+  const key = pickKey();
   // call getNewProxy with this key
-  // if "must wait", call getCurrentProxy(key) as fallback
+  // if "must wait" (response includes nextChange), call getCurrentProxy(key) as fallback
 }
 ```
 

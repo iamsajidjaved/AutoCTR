@@ -580,14 +580,22 @@ The proxy service iterates through registered providers in order, falling back t
 
 ### Multi-Key Pool (IP Diversity)
 
-Each Shoplike API key controls one rotating IP slot independently. With multiple keys, concurrent jobs use **different keys → different IPs** simultaneously, making traffic look more natural to Google.
+Each Shoplike API key controls one rotating IP slot independently. With multiple keys, concurrent jobs across PM2 workers use **different keys → different IPs** simultaneously, making traffic look more natural to Google.
 
 Configure all your keys as a comma-separated list:
 ```env
 SHOPLIKE_API_KEYS=key1,key2,key3,...
 ```
 
-The provider uses **round-robin rotation** per worker process: job 1 gets key[0], job 2 gets key[1], etc. With 17 keys and 3 concurrent jobs per worker instance, every in-flight visit uses a unique IP. Across multiple PM2 worker instances, diversity is even greater.
+The provider pins **one key per PM2 worker process** using the `NODE_APP_INSTANCE` environment variable that PM2 cluster mode sets to a unique 0-based index per fork:
+
+- Worker instance `0` → `keys[0]`
+- Worker instance `1` → `keys[1]`
+- … and so on (wrapping `instance % keys.length` if there are more workers than keys).
+
+This is deliberate: a single Shoplike key is gated server-side by `nextChange` (~60s rotation window), so two callers hitting the same key in rapid succession share whatever IP is currently bound to it. Pinning per-process maximises diversity across workers without fighting the rotation window. Inside one worker, the in-process `MAX_CONCURRENT_JOBS = 3` jobs intentionally share that worker's single key (and current IP) until the next rotation opens.
+
+When `NODE_APP_INSTANCE` is unset (e.g. running `node src/workers/trafficWorker.js` directly outside PM2), the provider falls back to a process-local round-robin counter so dev mode still works.
 
 **Adding a new provider:**
 
