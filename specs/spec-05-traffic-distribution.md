@@ -79,17 +79,41 @@ Shared between both modes — generates the type/device/timestamp arrays for one
 bulkCreate(rows)
   → INSERT INTO traffic_details (...) VALUES ... (batch insert, max 500 rows per query)
 
-findPendingDue(limit)
-  → SELECT td.*, ts.min_dwell_seconds, ts.max_dwell_seconds, ts.website, ts.keyword
-     FROM traffic_details td
-     JOIN traffic_summaries ts ON ts.id = td.traffic_summary_id
-     WHERE td.status = 'pending' AND td.scheduled_at <= NOW()
-       AND ts.status = 'running'   -- skips paused/completed campaigns
-     ORDER BY td.scheduled_at ASC
-     LIMIT limit
-     FOR UPDATE OF td SKIP LOCKED
-  -- AND ts.status = 'running' prevents workers picking up stale pending rows
-  -- from campaigns that were paused mid-run (added with spec-12 pause feature)
+claimPendingDue(limit)
+  → Atomic claim. Selects up to `limit` pending+due rows belonging to running
+    campaigns, locks them with FOR UPDATE OF td SKIP LOCKED, AND in the same
+    statement updates them to status='running' / started_at=NOW(), returning
+    the claimed rows joined with the parent summary fields:
+
+    WITH claimed AS (
+      SELECT td.id
+      FROM traffic_details td
+      JOIN traffic_summaries ts ON ts.id = td.traffic_summary_id
+      WHERE td.status = 'pending'
+        AND td.scheduled_at <= NOW()
+        AND ts.status = 'running'
+      ORDER BY td.scheduled_at ASC
+      LIMIT limit
+      FOR UPDATE OF td SKIP LOCKED
+    )
+    UPDATE traffic_details td
+    SET status = 'running', started_at = NOW()
+    FROM claimed c, traffic_summaries ts
+    WHERE td.id = c.id AND ts.id = td.traffic_summary_id
+    RETURNING td.*, ts.min_dwell_seconds, ts.max_dwell_seconds, ts.website, ts.keyword
+
+  -- Wrapping the SKIP LOCKED select inside an UPDATE ... RETURNING is what
+  -- makes the claim safe across PM2 instances. A bare SELECT ... FOR UPDATE
+  -- on a pooled (autocommit) connection releases the row locks the moment the
+  -- connection is returned to the pool, allowing another worker to claim the
+  -- same row before the first one had a chance to flip its status.
+  -- AND ts.status = 'running' also prevents workers from picking up stale
+  -- pending rows from campaigns that were paused mid-run (spec-12).
+
+pendingDueStats()
+  → Diagnostic counter used by the worker when a claim returns 0 rows. Reports
+    { pending_due, pending_future, running } across every active campaign so
+    operators can tell "no work yet" apart from "all due rows already in flight".
 
 updateStatus(id, status, { ip, startedAt, completedAt, actualDwellSeconds, errorMessage } = {})
   → UPDATE traffic_details SET status=..., actual_dwell_seconds=..., ... WHERE id=...

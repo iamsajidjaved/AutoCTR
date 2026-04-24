@@ -26,13 +26,22 @@ src/
 ## Implementation Details
 
 ### Worker Architecture
-Each PM2 instance runs `trafficWorker.js` independently. Use `FOR UPDATE SKIP LOCKED` in the DB query (already in `trafficDetailModel.findPendingDue`) so workers don't double-claim jobs.
+Each PM2 instance runs `trafficWorker.js` independently. Jobs are claimed via
+`trafficDetailModel.claimPendingDue(limit)`, which performs an atomic
+`UPDATE ... RETURNING` wrapping a `SELECT ... FOR UPDATE OF td SKIP LOCKED`.
+The row is locked **and** flipped to `status='running'` (with `started_at = NOW()`)
+inside one statement, so two PM2 workers polling on the same tick can never
+claim the same row.
 
 ```
-POLL_INTERVAL_MS = 5000        (every 5 seconds)
-BATCH_SIZE = 5                 (jobs per worker per poll)
-MAX_CONCURRENT_JOBS = 3        (per worker instance)
+POLL_INTERVAL_MS    = 5000        (every 5 seconds)
+MAX_CONCURRENT_JOBS = 3            (per worker instance)
+BATCH_SIZE          = MAX_CONCURRENT_JOBS
 ```
+
+BATCH_SIZE is intentionally pinned to MAX_CONCURRENT_JOBS — over-fetching would
+just hold extra rows in `running` while they wait for a free in-process slot,
+starving the other PM2 workers.
 
 ### `src/workers/trafficWorker.js`
 ```js
@@ -54,17 +63,23 @@ run();
 
 ```js
 async processBatch()
-  1. Fetch up to BATCH_SIZE pending+due jobs via trafficDetailModel.findPendingDue()
-     NOTE: findPendingDue only returns jobs from 'running' campaigns — paused campaigns
-     are automatically skipped by the AND ts.status = 'running' filter in the query.
-  2. For each job (up to MAX_CONCURRENT_JOBS in parallel):
-     a. Mark job as 'running' (set started_at = NOW())
-     b. Call puppeteerService.executeJob(job) [stub until spec-07]
-        job includes: min_dwell_seconds, max_dwell_seconds (from the JOIN in findPendingDue)
+  1. Atomically claim up to BATCH_SIZE pending+due jobs via
+     trafficDetailModel.claimPendingDue(BATCH_SIZE). Rows come back already
+     marked 'running' with started_at = NOW(). claimPendingDue only returns
+     jobs from 'running' campaigns — paused campaigns are skipped by the
+     AND ts.status = 'running' filter in the query.
+  2. If 0 jobs were claimed, log a throttled queue snapshot (at most once per
+     60s) showing pendingDueStats() so operators can distinguish "no work due"
+     from "all due rows already in flight".
+  3. For each claimed job (run all in parallel — BATCH_SIZE == MAX_CONCURRENT_JOBS):
+     a. Call puppeteerService.executeJob(job).
+        job includes: min_dwell_seconds, max_dwell_seconds (from the JOIN in claimPendingDue)
         puppeteerService assigns proxy and returns { success, proxyHost, actualDwellSeconds }
-     c. On success: mark 'completed', set ip = result.proxyHost, completed_at, actual_dwell_seconds
-     d. On failure: mark 'failed', set error_message
-  3. After each job: call campaignCompletionService.checkAndComplete(summaryId)
+     b. On success: mark 'completed', set ip = result.proxyHost, completed_at, actual_dwell_seconds
+     c. On failure (or thrown exception): mark 'failed', set error_message
+  4. After each job (success, failure, OR thrown exception): call
+     campaignCompletionService.checkAndComplete(summaryId) so a campaign whose
+     final visit threw still transitions to 'completed'.
 ```
 
 ### Proxy Stub (`src/services/proxyService.js`)
@@ -94,7 +109,8 @@ On `SIGTERM`:
 
 ### Logging
 Use a simple logger that prefixes each line with `[worker-${process.pid}]`. Log:
-- Poll results: `fetched N jobs`
+- Successful poll: `claimed N jobs`
+- Idle poll (throttled to once per 60s): `claimed 0 jobs (queue snapshot: pending_due=X, running=Y, pending_future=Z)`
 - Each job start: `job ${id} starting (type=click, device=mobile)`
 - Each job end: `job ${id} completed` or `job ${id} failed: <error>`
 
