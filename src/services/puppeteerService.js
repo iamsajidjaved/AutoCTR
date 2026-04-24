@@ -6,6 +6,7 @@ const humanBehavior = require('../utils/humanBehavior');
 const deviceProfiles = require('../utils/deviceProfiles');
 const { getProxy } = require('./proxyService');
 const captchaService = require('./captchaService');
+const { safeEvaluate } = require('./captchaService');
 const config = require('../config');
 
 puppeteer.use(StealthPlugin());
@@ -27,8 +28,10 @@ function makeTimeout(ms) {
 }
 
 async function isCaptchaPresent(page) {
-  return page.evaluate(() =>
-    !!(document.querySelector('#captcha-form') || document.querySelector('iframe[src*="recaptcha"]'))
+  return safeEvaluate(
+    page,
+    () => !!(document.querySelector('#captcha-form') || document.querySelector('iframe[src*="recaptcha"]')),
+    false
   );
 }
 
@@ -82,15 +85,32 @@ async function onSiteBehavior(page, job) {
 // Prioritises <a> elements wrapping <h3> — those carry Google's data-ved
 // click-tracking attributes and are what users actually click on the SERP.
 async function findResultCoords(page, targetDomain) {
-  return page.evaluate((domain) => {
-    const links = [...document.querySelectorAll(`#search a[href*="${domain}"]`)];
-    const link = links.find(a => !!a.querySelector('h3')) || links[0];
-    if (!link) return null;
-    // Instant scroll so getBoundingClientRect is accurate immediately
-    link.scrollIntoView({ behavior: 'instant', block: 'center' });
-    const r = link.getBoundingClientRect();
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-  }, targetDomain);
+  // Retries up to 3 times to absorb "Execution context was destroyed" errors
+  // caused by post-CAPTCHA redirect chains or in-place SERP re-renders.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const coords = await page.evaluate((domain) => {
+        const links = [...document.querySelectorAll(`#search a[href*="${domain}"]`)];
+        const link = links.find(a => !!a.querySelector('h3')) || links[0];
+        if (!link) return null;
+        // Instant scroll so getBoundingClientRect is accurate immediately
+        link.scrollIntoView({ behavior: 'instant', block: 'center' });
+        const r = link.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      }, targetDomain);
+      return coords;
+    } catch (err) {
+      const msg = err && err.message ? err.message : '';
+      const transient =
+        msg.includes('Execution context was destroyed') ||
+        msg.includes('Cannot find context') ||
+        msg.includes('Session closed');
+      if (!transient || attempt === 2) throw err;
+      await page.waitForSelector('#search', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 800));
+    }
+  }
+  return null;
 }
 
 async function runJob(job) {
@@ -150,11 +170,33 @@ async function runJob(job) {
       return { success: false, error: 'captcha_timeout', actualDwellSeconds: null };
     }
 
-    // If a CAPTCHA was present and solved, Google auto-submits and navigates back
-    // to the SERP. Wait for #search to finish loading before proceeding.
+    // If a CAPTCHA was present and solved, captchaService already waited for
+    // the post-solve navigation to settle. Re-confirm the SERP is rendered
+    // (the redirect target may be the search page or the original referrer)
+    // and tolerate a second CAPTCHA being shown immediately after.
     if (postCheck.solved) {
-      await page.waitForSelector('#search', { timeout: 20000 });
+      const stillCaptcha = await isCaptchaPresent(page);
+      if (stillCaptcha) {
+        const second = await captchaService.handleCaptcha(page);
+        if (second.reason === 'timeout') {
+          return { success: false, error: 'captcha_timeout', actualDwellSeconds: null };
+        }
+      }
+      await page.waitForSelector('#search, textarea[name="q"]', { timeout: 20000 }).catch(() => {});
       await humanBehavior.randomDelay(1000, 2500);
+
+      // If we landed on the homepage rather than the SERP, re-submit the search.
+      const hasResults = await safeEvaluate(page, () => !!document.querySelector('#search'), false);
+      if (!hasResults) {
+        const queryBox = await page.$('textarea[name="q"]');
+        if (queryBox) {
+          await queryBox.click({ clickCount: 3 }).catch(() => {});
+          await humanBehavior.typeSlowly(page, 'textarea[name="q"]', job.keyword);
+          await page.keyboard.press('Enter');
+          await page.waitForSelector('#search', { timeout: 20000 }).catch(() => {});
+          await humanBehavior.randomDelay(1000, 2500);
+        }
+      }
     }
 
     if (job.type === 'impression') {

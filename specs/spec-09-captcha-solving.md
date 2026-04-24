@@ -216,3 +216,20 @@ if (!fs.existsSync(extensionPath)) {
 - [x] If extension directory is missing, startup logs a warning (no crash)
 - [x] Jobs with no CAPTCHA are unaffected (fast path skips all waiting)
 - [x] `extensions/rektcaptcha/background.js` defaults set both `recaptcha_auto_open` and `recaptcha_auto_solve` to `true` so the extension solves CAPTCHAs without manual popup toggling
+- [x] Polling and post-solve flow tolerate "Execution context was destroyed" navigations (see hardening section below)
+
+---
+
+## Navigation-Race Hardening (added after initial implementation)
+
+After the initial implementation, jobs intermittently failed with **`Execution context was destroyed, most likely because of a navigation`** *after* a CAPTCHA was solved. Root cause: once RektCaptcha injects the token into `#g-recaptcha-response`, Google's `/sorry/index` page auto-submits its hidden `<form>`, triggering a top-level navigation. Any `page.evaluate()` call (the polling loop in `waitForCaptchaSolved`, the post-solve `findResultCoords` evaluate, etc.) racing that navigation throws.
+
+### Fix
+1. **`safeEvaluate(page, fn, fallback)` helper** in `captchaService.js` — wraps `page.evaluate` and swallows transient errors (`Execution context was destroyed`, `Cannot find context`, `Target closed`, `Session closed`), returning `fallback` instead. Exported and re-used by `puppeteerService`.
+2. **`waitForPostCaptchaSettle(page)`** — after `waitForCaptchaSolved` returns true, races `page.waitForNavigation({ waitUntil: 'domcontentloaded' })`, `page.waitForNetworkIdle({ idleTime: 800 })`, and a hard timeout, then sleeps 800 ms so handlers can re-wire. `handleCaptcha` always calls this before returning `{ solved: true }`.
+3. **`findResultCoords(page, domain)`** — wrapped in a 3-attempt retry loop that catches the same transient errors and re-waits for `#search` between attempts.
+4. **Post-solve flow in `runJob`** — after `handleCaptcha` returns solved, if a *second* CAPTCHA is now showing it is solved again; if the page settled on the homepage instead of the SERP (rare redirect path), the search is automatically re-submitted.
+
+### Files Touched
+- `src/services/captchaService.js` — adds `safeEvaluate`, `waitForPostCaptchaSettle`; uses tolerant evaluate in polling loop.
+- `src/services/puppeteerService.js` — imports `safeEvaluate`; retries on `findResultCoords`; post-solve re-check + optional re-submit.
