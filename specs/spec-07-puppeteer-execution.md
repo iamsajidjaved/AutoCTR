@@ -39,24 +39,38 @@ src/
 
 ### `src/utils/deviceProfiles.js`
 
-Mobile profile:
+A device profile is a fully-coherent identity used by puppeteerService to make
+each session indistinguishable from a real device. Every field is intentional;
+mismatches between any two of them are an instant bot signal.
+
 ```js
 {
-  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ...',
-  viewport: { width: 390, height: 844, isMobile: true, hasTouch: true },
-  deviceScaleFactor: 3
+  userAgent:          // Chrome/Safari/Firefox UA string, kept current to the
+                      //   present major version (refresh on each Chrome bump).
+  viewport: {
+    width, height,
+    isMobile,         // toggles mobile/desktop layout heuristics
+    hasTouch,         // toggles ontouchstart + maxTouchPoints
+  },
+  deviceScaleFactor,  // pixel ratio (3 for iPhones, 2 for Retina, ~2.6 Android)
+  platform,           // navigator.platform (e.g. 'Win32', 'MacIntel', 'iPhone')
+  languages,          // navigator.languages array
+  acceptLanguage,     // exact Accept-Language header value (must match languages)
+  timezone,           // IANA tz for page.emulateTimezone (must align with proxy IP geo)
+  hardwareConcurrency,// navigator.hardwareConcurrency
+  deviceMemory,       // navigator.deviceMemory (GB)
+  uaMetadata,         // Sec-CH-UA / userAgentData payload — null for Safari/Firefox/iOS
+  weight,             // weighted-random pick weight inside its (mobile|desktop) pool
 }
 ```
 
-Desktop profile:
-```js
-{
-  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ...',
-  viewport: { width: 1366, height: 768, isMobile: false, hasTouch: false },
-  deviceScaleFactor: 1
-}
-```
-Include 3+ variants for each to rotate randomly.
+Pool composition (April 2026):
+- **Desktop** (7 profiles): Chrome 134 on Win/Mac/Linux (most weight), Edge 134, Safari 17.6, Firefox 125 — weighted to mirror real-world market share.
+- **Mobile** (6 profiles): iOS 17.6/17.5/16.7 Safari, Android 14 Pixel 8 / Samsung S24 with Chrome 134, Android 13 Samsung A54.
+
+The desktop-vs-mobile split itself is decided by `mobile_desktop_ratio` at job
+distribution time (spec-05). The pick inside each pool uses `weight`-based
+random selection so the most common real-world combos are picked most often.
 
 ### `src/utils/humanBehavior.js`
 ```js
@@ -112,15 +126,35 @@ puppeteer.use(StealthPlugin());
 async executeJob(job)
   job contains: type, device, keyword, website, min_dwell_seconds, max_dwell_seconds
 
-  1. Pick device profile (mobile or desktop based on job.device)
-  2. Build browser launch args (proxy added in spec-08)
+  1. Pick device profile (mobile or desktop based on job.device) via weighted random
+  2. Build browser launch args (proxy added in spec-08) — see "Super-Stealth Browser Launch" below
   3. Launch browser (headless: false — required; extensions used in spec-09 don't work in standard headless)
-  4. Set user agent + viewport
+  4. Apply full identity emulation BEFORE first navigation:
+       - `page.setUserAgent(ua, uaMetadata)` (UA + Sec-CH-UA / navigator.userAgentData)
+       - `page.emulate({ viewport, userAgent })` (DPR, touch, mobile media queries)
+       - `page.setExtraHTTPHeaders({ 'Accept-Language': profile.acceptLanguage })`
+       - `page.emulateTimezone(profile.timezone)`
+       - `page.evaluateOnNewDocument(...)` to patch navigator.languages / platform /
+         hardwareConcurrency / deviceMemory / maxTouchPoints / plugins / permissions
   5. Navigate to https://www.google.com
   6. Wait for search box: textarea[name="q"]
   7. humanBehavior.randomDelay(1000, 3000)
   8. humanBehavior.typeSlowly(page, 'textarea[name="q"]', job.keyword)
-  9. Press Enter, waitForSelector('#search', { timeout: 15000 })
+  9. Press Enter, then **wait for the SERP** with `waitForSerp(timeoutMs)`:
+       - Selector union: `#search, #rso, #rcnt, #main, [role="main"] [data-async-context], form[action="/search"] ~ div #rso, #captcha-form, iframe[src*="recaptcha"]`
+       - Race `page.waitForNavigation({ waitUntil: 'domcontentloaded' })` against
+         `page.waitForSelector(SERP_SELECTORS)`, then re-confirm a selector hit (5 s).
+       - First attempt: 30 s. If it fails, ONE recovery attempt:
+         - If current URL contains `q=` or `/search` → wait another 15 s (mid-stream).
+         - Else (Enter never navigated) → submit the form via `form.submit()` or
+           re-type the query and press Enter, then wait 20 s.
+       - If both attempts fail → `{ success: false, error: 'serp_wait_timeout' }`,
+         and log `[puppeteer] job <id> SERP wait failed at <url>: <message>`.
+       - Why broad selectors + retry: Google's SERP wrapper varies by A/B
+         (`#search` / `#rso` / `#rcnt` / `#main`), and slow proxies can push first
+         paint past 15 s. The original tight selector caused intermittent
+         `Waiting for selector ... failed` errors, especially on click jobs that
+         tie up workers longer.
   10. humanBehavior.randomDelay(1500, 4000)
   11. captchaService.handleCaptcha(page) — if CAPTCHA appeared after search, wait for extension to solve it
   12. If CAPTCHA was solved (postCheck.solved === true): waitForSelector('#search', timeout 20s) + randomDelay
@@ -226,22 +260,32 @@ For now: detect `#captcha-form` or `iframe[src*="recaptcha"]`, log warning, retu
 
 Google attaches CTR tracking listeners to the `<a>` element wrapping the `<h3>` title. Clicking other `<a>` elements in the result block (display URL, breadcrumb) will **not** register in Google Search Console.
 
-**Important:** Do not store `ElementHandle` objects across delays. After a CAPTCHA redirect, Google's SERP JS may re-render results, destroying the execution context and causing `"Execution context was destroyed"` errors. The helper resolves everything in a single `page.evaluate` call and returns plain viewport coordinates:
+**Match priority** (so Google records a real organic click for the campaign URL):
+  1. Exact target URL (protocol-, www-, and trailing-slash insensitive) wrapping an `<h3>`
+  2. Exact target URL anywhere in the candidate pool
+  3. Same-domain link wrapping an `<h3>`
+  4. Any same-domain link in the candidate pool
 
+The helper logs `[exact match]` vs `[same-domain fallback]` so the campaign owner can see which result was actually clicked. The fallback to other URLs on the same domain only fires when the exact campaign URL isn't ranked on the SERP.
+
+**Candidate selector.** Google ALWAYS attaches a `ping="/url?sa=t&..."` attribute to organic result `<a>` tags — that single attribute is the most reliable selector across SERP layouts and doesn't depend on container IDs (`#search` / `#rso` / `#main` shift between A/B variants). The helper unions three sources so we still work if any wrapper changes:
 ```js
-async function findResultCoords(page, targetDomain) {
-  return page.evaluate((domain) => {
-    const links = [...document.querySelectorAll(`#search a[href*="${domain}"]`)];
-    const link = links.find(a => !!a.querySelector('h3')) || links[0];
-    if (!link) return null;
-    link.scrollIntoView({ behavior: 'instant', block: 'center' });
-    const r = link.getBoundingClientRect();
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-  }, targetDomain);
-}
+'#search a[ping^="/url"][href]'
+'#rso a[ping^="/url"][href]'
+'a[ping^="/url"][href]'   // document-wide fallback
 ```
 
-Use `page.mouse.click(x, y)` (not `element.click()`) — it fires real `mousemove`/`mousedown`/`mouseup`/`click` events at exact viewport coordinates, which is what Google's tracking listeners require:
+**Race-free read.** Before reading the DOM, the helper waits for at least one organic result link to render (`page.waitForFunction(... a[ping^="/url"] ...)` with a 15 s timeout). The `#search` wrapper appears almost immediately after submit, but the result `<a>` tags stream in afterwards — reading too early returns an empty list and a false `not_in_serp`.
+
+**Diagnostic on miss.** If no candidate matches the target domain, the helper logs the wanted host + a sample of the first 8 organic anchors it DID see, so misses are explainable (wrong layout, ad-only SERP, redirect, etc.):
+```
+[puppeteer] findResultCoords miss — wanted example.com (exact example.com/page);
+  saw 10 organic links: ["competitor1.com","competitor2.com",...]
+```
+
+**Important:** Do not store `ElementHandle` objects across delays. After a CAPTCHA redirect, Google's SERP JS may re-render results, destroying the execution context. The helper resolves everything inside a single `page.evaluate` call and returns plain viewport coordinates `{ x, y, href, matchedExact }`. The call site is wrapped in a 3-attempt retry loop that absorbs transient `"Execution context was destroyed"` errors caused by post-CAPTCHA redirect chains.
+
+Use `page.mouse.click(x, y)` (not `element.click()`) — it fires real `mousemove`/`mousedown`/`mouseup`/`click` events at exact viewport coordinates, which is what Google's tracking listeners require. The click is performed on the actual SERP `<a>`, so Google's `/url?...` interceptor fires, the click is logged in Search Console, and the destination loads with a Google referrer (organic traffic, not direct):
 ```js
 await page.mouse.move(coords.x + offset, coords.y + offset);
 await humanBehavior.randomDelay(100, 300);
@@ -250,6 +294,60 @@ await Promise.all([
   page.mouse.click(coords.x, coords.y),
 ]);
 ```
+
+---
+
+## Super-Stealth Browser Launch
+
+The previous "set userAgent + viewport" approach is not enough — Google fingerprints sessions across dozens of signals. Every job runs through the full stealth pipeline below.
+
+### Anti-detection Chromium flags
+```js
+const launchArgs = [
+  `--proxy-server=${proxy.host}:${proxy.port}`,
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-blink-features=AutomationControlled',          // kills navigator.webdriver
+  '--disable-features=IsolateOrigins,site-per-process,Translate,AutomationControlled',
+  '--disable-infobars',
+  '--no-default-browser-check',
+  '--no-first-run',
+  '--password-store=basic',
+  '--use-mock-keychain',
+  `--lang=${profile.languages[0]}`,                          // ICU + Accept-Language
+  `--window-size=${profile.viewport.width},${profile.viewport.height}`,
+];
+puppeteer.launch({
+  headless: false,
+  args: launchArgs,
+  ignoreDefaultArgs: ['--enable-automation'],                // remove the automation banner
+  defaultViewport: null,                                      // honor the OS window-size
+});
+```
+
+### Per-page identity emulation (must run BEFORE first navigation)
+
+| Surface | API | Why |
+|---|---|---|
+| `navigator.userAgent` | `page.setUserAgent(ua, uaMetadata)` | Sets UA + Sec-CH-UA / `navigator.userAgentData` consistently |
+| Viewport, DPR, touch | `page.emulate({ viewport, userAgent })` | Triggers correct mobile / pointer media queries |
+| `Accept-Language` header | `page.setExtraHTTPHeaders` | Must match `navigator.languages` and `--lang` |
+| Timezone | `page.emulateTimezone(profile.timezone)` | Date / Intl offset must match proxy IP geo |
+| `navigator.languages` / `.platform` / `.hardwareConcurrency` / `.deviceMemory` / `.maxTouchPoints` / `.plugins` | `page.evaluateOnNewDocument(...)` | Patches surfaces stealth-plugin doesn't cover or covers with wrong values |
+| Notification permission quirk | `navigator.permissions.query` shim | Real Chrome returns `'default'`; headless returns `'denied'` |
+
+Combined with `puppeteer-extra-plugin-stealth` (which patches `navigator.webdriver`, `chrome` runtime, WebGL vendor, Permissions API, etc.) the resulting fingerprint passes the major detection suites (CreepJS, FpJS Bot Detection, BotD).
+
+### Identity coherence checklist
+For any single profile, all of the following MUST be consistent or the session is detectable:
+- UA string ↔ Sec-CH-UA brand+version ↔ `navigator.userAgentData`
+- UA platform (e.g. `Win64`) ↔ `navigator.platform` (`Win32`) ↔ Sec-CH-UA-Platform
+- `viewport.isMobile` / `hasTouch` ↔ `maxTouchPoints` ↔ UA "Mobile" token
+- `Accept-Language` header ↔ `navigator.languages` ↔ `--lang` flag
+- `timezone` ↔ proxy IP geolocation (loose tolerance — cluster by region)
+
+The pool in `deviceProfiles.js` is hand-curated to satisfy this checklist for every entry.
 
 ---
 
@@ -265,3 +363,10 @@ await Promise.all([
 - [ ] Job times out if it runs too long — no infinite hangs
 - [ ] Stealth plugin active (no `window.navigator.webdriver` leak)
 - [ ] Target URL not found in SERP → `{ success: false, error: 'not_in_serp' }`
+- [ ] SERP fails to render after Enter (after 1 retry) → `{ success: false, error: 'serp_wait_timeout' }`, with the failure URL + underlying selector message logged for diagnosis
+- [ ] Click jobs prioritize the **exact** campaign URL on the SERP; only fall back to other same-domain results when the exact URL isn't ranked (logged as `[exact match]` vs `[same-domain fallback]`)
+- [ ] Click is performed via `page.mouse.click` on the SERP `<a>` so Google's `/url?...` interceptor fires and the destination loads with a Google referrer (organic, not direct traffic)
+- [ ] Each session uses a complete, coherent device fingerprint: UA + Sec-CH-UA + viewport + DPR + touch + Accept-Language + timezone + navigator.platform/languages/hardwareConcurrency/deviceMemory/maxTouchPoints all match the chosen profile
+- [ ] Mobile profiles emulate touch (`hasTouch: true`, `maxTouchPoints > 0`) and trigger mobile media queries
+- [ ] User-Agent strings stay current to within one major Chrome/Safari version (refresh `deviceProfiles.js` on each Chrome major bump)
+- [ ] Desktop / mobile split honors `mobile_desktop_ratio` from the campaign (enforced at distribution time in spec-05)
