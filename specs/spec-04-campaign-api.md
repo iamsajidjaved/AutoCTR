@@ -45,6 +45,19 @@ findByIdAndUser(id, userId)
 
 updateStatus(id, status)
   → UPDATE status + updated_at
+
+deleteById(id)
+  → DELETE FROM traffic_summaries WHERE id = $1
+
+markCompleted(id)
+  → UPDATE status = 'completed' WHERE id = $1 AND status = 'running'
+     AND NOT EXISTS (pending/running traffic_details)
+  → race-safe: no-op if another worker already completed it
+
+pauseAndCancelJobs(id)
+  → UPDATE traffic_details SET status = 'failed', error_message = 'Campaign paused'
+     WHERE traffic_summary_id = $1 AND status IN ('pending', 'running')
+  → UPDATE traffic_summaries SET status = 'paused' WHERE id = $1
 ```
 
 ### `src/services/campaignService.js`
@@ -60,6 +73,29 @@ listCampaigns(userId)
 getCampaign(id, userId)
   → campaignModel.findByIdAndUser(id, userId)
   → throw 404 if not found
+
+deleteCampaign(id, userId)
+  → ownership check → throw 404 if not found
+  → throw 409 if status === 'running' ("pause it first")
+  → campaignModel.deleteById(id)
+
+activateCampaign(id, userId)
+  → ownership check → throw 404 if not found
+  → throw 409 if status !== 'pending'
+  → generateVisits → bulkCreate → set status = 'running' (transaction)
+  → return { campaign, visitsScheduled: N }
+
+pauseCampaign(id, userId)
+  → ownership check → throw 404 if not found
+  → throw 409 if status !== 'running'
+  → campaignModel.pauseAndCancelJobs(id)
+  → return updated campaign row
+
+restartCampaign(id, userId)
+  → ownership check → throw 404 if not found
+  → throw 409 if status not in ['paused', 'completed']
+  → DELETE old traffic_details → generateVisits → bulkCreate → set status = 'running' (transaction)
+  → return { campaign, visitsScheduled: N }
 ```
 
 ### Validation (in service layer)

@@ -55,14 +55,16 @@ run();
 ```js
 async processBatch()
   1. Fetch up to BATCH_SIZE pending+due jobs via trafficDetailModel.findPendingDue()
+     NOTE: findPendingDue only returns jobs from 'running' campaigns — paused campaigns
+     are automatically skipped by the AND ts.status = 'running' filter in the query.
   2. For each job (up to MAX_CONCURRENT_JOBS in parallel):
      a. Mark job as 'running' (set started_at = NOW())
-     b. Assign proxy IP via proxyService.getProxy() [stub returns '0.0.0.0' until spec-08]
-     c. Call puppeteerService.executeJob(job) [stub until spec-07]
+     b. Call puppeteerService.executeJob(job) [stub until spec-07]
         job includes: min_dwell_seconds, max_dwell_seconds (from the JOIN in findPendingDue)
-     d. On success: mark 'completed', set ip, completed_at, actual_dwell_seconds (from result)
-     e. On failure: mark 'failed', set error_message
-  3. After batch: call campaignCompletionService.checkAndComplete() [stub until spec-11]
+        puppeteerService assigns proxy and returns { success, proxyHost, actualDwellSeconds }
+     c. On success: mark 'completed', set ip = result.proxyHost, completed_at, actual_dwell_seconds
+     d. On failure: mark 'failed', set error_message
+  3. After each job: call campaignCompletionService.checkAndComplete(summaryId)
 ```
 
 ### Proxy Stub (`src/services/proxyService.js`)

@@ -32,13 +32,26 @@ src/
 async checkAndComplete(summaryId)
   1. Call trafficDetailModel.countByStatus(summaryId)
      → { pending, running, completed, failed }
-  2. If pending > 0 OR running > 0: return (campaign still in progress)
+  2. If pending > 0 OR running > 0: return false (campaign still in progress)
   3. If pending === 0 AND running === 0:
      → campaignModel.markCompleted(summaryId)
      → log: `Campaign ${summaryId} marked completed`
+     → returns true if UPDATE fired, false if no-op (race-safe)
+
+async getProgress(summaryId)
+  1. Call trafficDetailModel.countByStatus(summaryId) → counts
+  2. total = pending + running + completed + failed
+  3. percentComplete = (completed + failed) / total * 100 (rounded to 1 decimal)
+  4. Call trafficDetailModel.avgDwellSeconds(summaryId) → avg (null if no clicks yet)
+  5. Returns:
+     {
+       total, pending, running, completed, failed,
+       percentComplete,
+       avgDwellSeconds  ← integer seconds, or null if no completed clicks
+     }
 ```
 
-This runs after every batch in `workerService.js` (already wired in spec-06 stub).
+This `getProgress()` is called directly from `campaignController.progress` to serve the progress endpoint.
 
 ### `campaignModel.markCompleted(id)`
 ```sql
@@ -75,8 +88,8 @@ Returns:
 }
 ```
 
-`percentComplete = (completed + failed) / total * 100`
-`avgDwellSeconds = AVG(actual_dwell_seconds) WHERE actual_dwell_seconds IS NOT NULL` (null for impressions)
+`percentComplete = Math.round((completed + failed) / total * 1000) / 10` (1 decimal place)
+`avgDwellSeconds = AVG(actual_dwell_seconds) rounded to integer, null if no completed clicks`
 
 ### Failed Visit Handling
 - Failed visits count toward completion (campaign won't be stuck waiting for them)

@@ -69,11 +69,11 @@ export default function NewCampaignForm() {
       const createRes = await api.post('/api/campaigns', {
         website: form.website,
         keyword: form.keyword,
-        requiredVisits: form.total_visits,
+        required_visits: form.total_visits,
         ctr: form.ctr,
-        mobileDesktopRatio: form.mobile_desktop_ratio,
-        minDwellSeconds: form.min_dwell_seconds,
-        maxDwellSeconds: form.max_dwell_seconds,
+        mobile_desktop_ratio: form.mobile_desktop_ratio,
+        min_dwell_seconds: form.min_dwell_seconds,
+        max_dwell_seconds: form.max_dwell_seconds,
       });
       const campaignId = createRes.data.id;
       await api.post(`/api/campaigns/${campaignId}/activate`);

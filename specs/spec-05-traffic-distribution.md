@@ -65,16 +65,21 @@ findPendingDue(limit)
      FROM traffic_details td
      JOIN traffic_summaries ts ON ts.id = td.traffic_summary_id
      WHERE td.status = 'pending' AND td.scheduled_at <= NOW()
+       AND ts.status = 'running'   -- skips paused/completed campaigns
      ORDER BY td.scheduled_at ASC
      LIMIT limit
      FOR UPDATE OF td SKIP LOCKED
-  -- JOIN gives the worker everything it needs without a second query
+  -- AND ts.status = 'running' prevents workers picking up stale pending rows
+  -- from campaigns that were paused mid-run (added with spec-12 pause feature)
 
 updateStatus(id, status, { ip, startedAt, completedAt, actualDwellSeconds, errorMessage } = {})
   → UPDATE traffic_details SET status=..., actual_dwell_seconds=..., ... WHERE id=...
 
 countByStatus(summaryId)
   → { pending, running, completed, failed } counts for a campaign
+
+avgDwellSeconds(summaryId)
+  → AVG(actual_dwell_seconds) WHERE actual_dwell_seconds IS NOT NULL (null if no data)
 ```
 
 ### Activate Endpoint
