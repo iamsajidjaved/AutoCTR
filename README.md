@@ -254,7 +254,7 @@ npm run dashboard
 | Name | Script | Instances | Mode | Purpose |
 |---|---|---|---|---|
 | `ctr-api` | `src/server.js` | 1 | fork | Express REST API |
-| `ctr-worker` | `src/workers/trafficWorker.js` | max (all CPUs) | cluster | Visit execution workers |
+| `ctr-worker` | `src/workers/trafficWorker.js` | = SHOPLIKE_API_KEYS count | cluster | Visit execution workers (1:1 with API keys) |
 
 #### Start Commands
 
@@ -580,20 +580,22 @@ The proxy service iterates through registered providers in order, falling back t
 
 ### Multi-Key Pool (IP Diversity)
 
-Each Shoplike API key controls one rotating IP slot independently. With multiple keys, concurrent jobs across PM2 workers use **different keys → different IPs** simultaneously, making traffic look more natural to Google.
+Each Shoplike API key controls one rotating IP slot independently. AutoCTR enforces a **strict 1:1 mapping between PM2 workers and API keys** so every worker has its own dedicated rotating IP.
 
-Configure all your keys as a comma-separated list:
+Configure your keys as a comma-separated list:
 ```env
 SHOPLIKE_API_KEYS=key1,key2,key3,...
 ```
 
-The provider pins **one key per PM2 worker process** using the `NODE_APP_INSTANCE` environment variable that PM2 cluster mode sets to a unique 0-based index per fork:
+`ecosystem.config.js` reads `SHOPLIKE_API_KEYS` from `.env` at PM2 start and sets `ctr-worker` `instances` to exactly the key count. Inside the provider, each worker reads PM2's `NODE_APP_INSTANCE` env var (the unique 0-based fork index) and binds itself to `keys[instance]` for life:
 
-- Worker instance `0` → `keys[0]`
-- Worker instance `1` → `keys[1]`
-- … and so on (wrapping `instance % keys.length` if there are more workers than keys).
+- Worker `0` → `keys[0]`
+- Worker `1` → `keys[1]`
+- … (one-to-one, no wrapping)
 
-This is deliberate: a single Shoplike key is gated server-side by `nextChange` (~60s rotation window), so two callers hitting the same key in rapid succession share whatever IP is currently bound to it. Pinning per-process maximises diversity across workers without fighting the rotation window. Inside one worker, the in-process `MAX_CONCURRENT_JOBS = 3` jobs intentionally share that worker's single key (and current IP) until the next rotation opens.
+If a worker's instance index has no matching key, the provider throws on first proxy request rather than silently sharing a key with another worker. Adding a key to `.env` and running `pm2 restart ecosystem.config.js --update-env` automatically scales the worker pool by one.
+
+Why not rotate keys per call? A single Shoplike key is gated server-side by `nextChange` (~60s rotation window). Two callers hitting the same key in rapid succession share whatever IP is currently bound to it — pinning per-process is the only way to guarantee distinct IPs across concurrent workers. Inside one worker, the in-process `MAX_CONCURRENT_JOBS = 3` jobs intentionally share that worker's single key (and current IP) until the next rotation opens.
 
 When `NODE_APP_INSTANCE` is unset (e.g. running `node src/workers/trafficWorker.js` directly outside PM2), the provider falls back to a process-local round-robin counter so dev mode still works.
 

@@ -11,22 +11,22 @@ const BASE = 'http://proxy.shoplike.vn/Api';
 // the same key in quick succession both share whatever IP is currently bound
 // to that key — they cannot both get a "new" proxy.
 //
-// To maximise IP diversity across the worker pool we pin **one key per PM2
-// worker process** using `NODE_APP_INSTANCE`, which PM2 cluster mode sets to a
-// unique 0-based index per fork. With N keys and M workers:
-//   - M <= N : every worker has its own key, so concurrent jobs across workers
-//              always use distinct rotating IPs.
-//   - M  > N : keys wrap (workers share keys) but each worker is still pinned
-//              deterministically — two workers may share an IP, but a worker
-//              never bounces between keys mid-job.
+// Policy: **strict 1:1 mapping between PM2 workers and API keys**. Each PM2
+// worker is pinned to exactly one key via `NODE_APP_INSTANCE` (the unique
+// 0-based fork index PM2 cluster mode sets). The number of PM2 worker
+// instances is driven by the key count in ecosystem.config.js, so adding a key
+// to .env automatically gives you another worker, and a worker started with no
+// matching key throws immediately rather than silently sharing a key with
+// another worker.
 //
 // Within a single worker, the in-process concurrency limit (MAX_CONCURRENT_JOBS)
-// means up to 3 jobs may be running at once; they intentionally share the
-// worker's single key (and therefore its current rotating IP) until the next
-// rotation window opens. This is the documented Shoplike behaviour.
+// allows up to 3 jobs to run at once; they intentionally share that worker's
+// single key (and therefore its current rotating IP) until the next rotation
+// window opens. This matches Shoplike's documented per-key rotation gating.
 //
-// Falls back to round-robin when NODE_APP_INSTANCE is unset (e.g. running the
-// worker directly via `node src/workers/trafficWorker.js` outside PM2).
+// When NODE_APP_INSTANCE is unset (running the worker directly via
+// `node src/workers/trafficWorker.js` outside PM2) we fall back to a
+// process-local round-robin counter so dev mode still works.
 let rrIndex = 0;
 
 function pickKey() {
@@ -37,7 +37,14 @@ function pickKey() {
   if (pmInstance !== undefined && pmInstance !== '') {
     const idx = parseInt(pmInstance, 10);
     if (Number.isInteger(idx) && idx >= 0) {
-      return keys[idx % keys.length];
+      if (idx >= keys.length) {
+        // Strict 1:1 enforcement — refuse to share keys across PM2 workers.
+        throw new Error(
+          `PM2 worker instance ${idx} has no Shoplike key (only ${keys.length} key(s) configured). ` +
+          `Add another key to SHOPLIKE_API_KEYS or reduce ctr-worker instances in ecosystem.config.js.`
+        );
+      }
+      return keys[idx];
     }
   }
 

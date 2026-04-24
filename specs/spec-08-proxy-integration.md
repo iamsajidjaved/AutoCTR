@@ -109,23 +109,23 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ### `src/providers/shoplikeProxy.js`
 
-Strategy: **one key pinned per PM2 worker process** via `NODE_APP_INSTANCE`
-(PM2 cluster sets this to a unique 0-based index per fork). Each Shoplike key is
-a single rotating IP slot — two callers hitting the same key in rapid succession
-share whatever IP is currently bound to it because rotation is gated server-side
-by `nextChange` (~60s). Pinning per-process therefore maximises IP diversity
-across concurrent workers without fighting the rotation window.
+Strategy: **strict 1:1 mapping between PM2 workers and API keys**. Each PM2
+worker is pinned for life to exactly one key via `NODE_APP_INSTANCE` (the
+unique 0-based fork index PM2 cluster mode sets). The number of `ctr-worker`
+instances is driven by the configured key count in `ecosystem.config.js`, so
+adding a key to `.env` automatically scales the pool by one.
 
-With **N keys** and **M PM2 workers**:
-- `M ≤ N` — every worker has its own key; concurrent jobs across workers always
-  use distinct rotating IPs.
-- `M > N` — keys wrap deterministically (`worker_idx % N`); two workers may
-  share a key (and therefore an IP), but a worker never bounces between keys.
+Why strict 1:1 (no wrapping)? A single Shoplike key is gated server-side by
+`nextChange` (~60s rotation window) — two callers hitting the same key in
+rapid succession share whatever IP is currently bound to it. If two PM2
+workers shared a key they would also share an IP, defeating the purpose of
+running multiple workers. The provider therefore **throws on first proxy
+request** if a worker's instance index has no corresponding key, rather than
+silently degrading.
 
-The in-process `MAX_CONCURRENT_JOBS` (3) means up to 3 jobs may run concurrently
-inside the same worker; they intentionally share the worker's single key (and
-its current IP) until the next rotation window opens — this matches the
-documented Shoplike behaviour.
+Inside a single worker, `MAX_CONCURRENT_JOBS = 3` jobs share that worker's
+single key (and its current IP) until the next rotation window opens — this
+matches Shoplike's documented per-key rotation gating.
 
 When `NODE_APP_INSTANCE` is unset (e.g. running the worker directly via
 `node src/workers/trafficWorker.js` outside PM2), the picker falls back to a
@@ -142,11 +142,17 @@ function pickKey() {
   if (pmInstance !== undefined && pmInstance !== '') {
     const idx = parseInt(pmInstance, 10);
     if (Number.isInteger(idx) && idx >= 0) {
-      return keys[idx % keys.length];   // pinned: this PM2 fork always uses the same key
+      if (idx >= keys.length) {
+        throw new Error(
+          `PM2 worker instance ${idx} has no Shoplike key (only ${keys.length} key(s) configured). ` +
+          `Add another key to SHOPLIKE_API_KEYS or reduce ctr-worker instances in ecosystem.config.js.`
+        );
+      }
+      return keys[idx];           // pinned: worker idx ↔ keys[idx]
     }
   }
 
-  const key = keys[rrIndex % keys.length];   // dev fallback: round-robin
+  const key = keys[rrIndex % keys.length];   // dev fallback only
   rrIndex = (rrIndex + 1) % keys.length;
   return key;
 }
@@ -154,8 +160,34 @@ function pickKey() {
 async function getNewProxy() {
   const key = pickKey();
   // call getNewProxy with this key
-  // if "must wait" (response includes nextChange), call getCurrentProxy(key) as fallback
+  // if response includes nextChange ("must wait"), call getCurrentProxy(key) as fallback
 }
+```
+
+### `ecosystem.config.js`
+
+Worker count is derived from the key count so the 1:1 invariant cannot drift:
+
+```js
+require('dotenv').config();
+const SHOPLIKE_KEY_COUNT = (process.env.SHOPLIKE_API_KEYS || '')
+  .split(',').map(k => k.trim()).filter(Boolean).length;
+
+if (SHOPLIKE_KEY_COUNT === 0) {
+  throw new Error('SHOPLIKE_API_KEYS must contain at least one key — workers cannot start.');
+}
+
+module.exports = {
+  apps: [
+    { name: 'ctr-api',    script: './src/server.js',                instances: 1 },
+    {
+      name: 'ctr-worker',
+      script: './src/workers/trafficWorker.js',
+      instances: SHOPLIKE_KEY_COUNT,    // <-- pinned to key count
+      exec_mode: 'cluster',
+    },
+  ],
+};
 ```
 
 ---
