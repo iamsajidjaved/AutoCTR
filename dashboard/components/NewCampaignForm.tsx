@@ -32,7 +32,7 @@ export default function NewCampaignForm() {
     const { name, value, type } = e.target;
     setForm((prev) => ({
       ...prev,
-      [name]: type === 'number' ? Number(value) : value,
+      [name]: type === 'number' || type === 'range' ? parseInt(value, 10) : value,
     }));
   }
 
@@ -69,11 +69,11 @@ export default function NewCampaignForm() {
       const createRes = await api.post('/api/campaigns', {
         website: form.website,
         keyword: form.keyword,
-        required_visits: form.total_visits,
-        ctr: form.ctr,
-        mobile_desktop_ratio: form.mobile_desktop_ratio,
-        min_dwell_seconds: form.min_dwell_seconds,
-        max_dwell_seconds: form.max_dwell_seconds,
+        required_visits: Math.round(form.total_visits),
+        ctr: Math.round(form.ctr),
+        mobile_desktop_ratio: Math.round(form.mobile_desktop_ratio),
+        min_dwell_seconds: Math.round(form.min_dwell_seconds),
+        max_dwell_seconds: Math.round(form.max_dwell_seconds),
       });
       const campaignId = createRes.data.id;
       await api.post(`/api/campaigns/${campaignId}/activate`);
