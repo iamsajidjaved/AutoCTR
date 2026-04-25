@@ -190,10 +190,27 @@ async function findResultCoords(page, targetUrl, targetDomain) {
       }, targetUrl, targetDomain);
 
       if (result && result.found === false) {
+        const pageInfo = await safeEvaluate(
+          page,
+          () => ({
+            url: location.href,
+            title: document.title,
+            hasCaptcha: !!(document.querySelector('#captcha-form') ||
+                           document.querySelector('iframe[src*="recaptcha"]') ||
+                           document.body && /unusual traffic|sorry/i.test(document.body.innerText.slice(0, 300))),
+            hasSearchBox: !!document.querySelector('textarea[name="q"]'),
+            anchorsTotal: document.querySelectorAll('a').length,
+            pingAnchors: document.querySelectorAll('a[ping]').length,
+          }),
+          { url: 'unknown', title: '', hasCaptcha: false, hasSearchBox: false, anchorsTotal: 0, pingAnchors: 0 }
+        );
         console.warn(
           `[puppeteer] findResultCoords miss — wanted ${result.wantedHost} ` +
           `(exact ${result.wantedFull}); saw ${result.totalCandidates} organic ` +
-          `links: ${JSON.stringify(result.sample)}`
+          `links: ${JSON.stringify(result.sample)} | page: ${pageInfo.url} ` +
+          `title="${pageInfo.title}" captcha=${pageInfo.hasCaptcha} ` +
+          `searchBox=${pageInfo.hasSearchBox} anchors=${pageInfo.anchorsTotal} ` +
+          `pingAnchors=${pageInfo.pingAnchors}`
         );
         return null;
       }
