@@ -153,7 +153,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Required
-POSTGRES_URL=postgresql://user:pass@host/dbname?sslmode=require
+DB_URL=postgresql://user:pass@host/dbname?sslmode=require
 JWT_SECRET=your-long-random-secret-here
 
 # Optional (defaults shown)
@@ -322,7 +322,7 @@ cd dashboard && npm install && cd ..
 
 Ensure `.env` in the project root has these values set:
 ```
-POSTGRES_URL=...        ← Neon connection string
+DB_URL=...        ← Neon connection string
 JWT_SECRET=...          ← Long random string
 TZ=Asia/Dubai           ← IANA timezone (process + DB session)
 SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
@@ -650,7 +650,7 @@ Visits within peak windows are 3× more likely to be scheduled than off-peak slo
 
 ## Troubleshooting
 
-**`POSTGRES_URL` / `JWT_SECRET` missing errors**
+**`DB_URL` / `JWT_SECRET` missing errors**
 → Ensure `.env` exists in the project root and is correctly formatted.
 
 **`Cannot find module 'autoprefixer'`**
