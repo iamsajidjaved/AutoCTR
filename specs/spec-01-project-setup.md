@@ -53,7 +53,7 @@ npm install --save-dev nodemon
 Export a frozen config object reading from `process.env`. Every other file imports from here — never `process.env` directly elsewhere.
 
 Required env vars:
-- `DATABASE_URL` — Neon connection string
+- `POSTGRES_URL` — Neon connection string
 - `JWT_SECRET` — minimum 32 chars
 - `PORT` — defaults to 3000
 - `NODE_ENV` — development / production
@@ -61,7 +61,7 @@ Required env vars:
 - `PROXY_API_KEY` — for proxy rotation (can be empty for now)
 - `REKTCAPTCHA_PATH` — path to unpacked RektCaptcha extension directory (can be empty for now)
 
-Throw a startup error if `DATABASE_URL` or `JWT_SECRET` is missing.
+Throw a startup error if `POSTGRES_URL` or `JWT_SECRET` is missing.
 
 ### `src/app.js`
 - `helmet()` for security headers
@@ -97,7 +97,7 @@ Note: `trafficWorker.js` is created in spec-06. PM2 will error if you start it b
 
 ### `.env.example`
 ```
-DATABASE_URL=postgres://...
+POSTGRES_URL=postgres://...
 JWT_SECRET=change_me_to_at_least_32_chars
 PORT=3000
 NODE_ENV=development
@@ -114,7 +114,7 @@ Node standard + `.env` + `extensions/`
 
 ## Acceptance Criteria
 - [ ] `npm install` completes with no errors
-- [ ] Copy `.env.example` to `.env`, fill in `DATABASE_URL` and `JWT_SECRET`
+- [ ] Copy `.env.example` to `.env`, fill in `POSTGRES_URL` and `JWT_SECRET`
 - [ ] `node src/server.js` starts without crashing
 - [ ] `GET http://localhost:3000/health` returns `{ "status": "ok" }`
 - [ ] Unknown routes return 404 JSON (not HTML)

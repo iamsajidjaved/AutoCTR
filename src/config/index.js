@@ -6,7 +6,7 @@ const TIMEZONE = process.env.TZ || 'Asia/Dubai';
 process.env.TZ = TIMEZONE;
 
 const config = Object.freeze({
-  DATABASE_URL: process.env.DATABASE_URL,
+  DATABASE_URL: process.env.POSTGRES_URL,
   JWT_SECRET: process.env.JWT_SECRET,
   PORT: process.env.PORT || 3000,
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -18,7 +18,7 @@ const config = Object.freeze({
 });
 
 if (!config.DATABASE_URL) {
-  throw new Error('Missing required env var: DATABASE_URL');
+  throw new Error('Missing required env var: POSTGRES_URL');
 }
 if (!config.JWT_SECRET) {
   throw new Error('Missing required env var: JWT_SECRET');
