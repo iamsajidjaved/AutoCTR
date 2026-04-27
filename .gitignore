@@ -3,9 +3,6 @@
 .env.local
 .env.*.local
 
-# Chrome extension (unpacked, gitignored per spec-09)
-extensions/
-
 # Node
 node_modules/
 npm-debug.log*
