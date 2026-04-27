@@ -2,8 +2,8 @@ require('dotenv').config();
 
 // Force the Node process to operate in Dubai time (Asia/Dubai, UTC+4, no DST).
 // Set as early as possible — before any module reads `new Date()` for the first time.
-const TIMEZONE = process.env.TZ || 'Asia/Dubai';
-process.env.TZ = TIMEZONE;
+const TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Dubai';
+process.env.APP_TIMEZONE = TIMEZONE;
 
 const config = Object.freeze({
   DATABASE_URL: process.env.DB_URL,

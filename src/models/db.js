@@ -10,7 +10,7 @@ const config = require('../config');
 // parameter — each call is a stateless transaction, so `SHOW TimeZone` over the
 // HTTP driver always reports `GMT`. Absolute TIMESTAMPTZ values are still
 // returned as correct UTC instants, and the JS process itself runs in
-// `Asia/Dubai` (process.env.TZ is forced in src/config/index.js), so all
+// `Asia/Dubai` (process.env.APP_TIMEZONE is forced in src/config/index.js), so all
 // application-level wall-clock arithmetic is consistent.
 function withTimezone(url, tz) {
   if (!url || !tz) return url;
