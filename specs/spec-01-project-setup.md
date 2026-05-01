@@ -53,15 +53,16 @@ npm install --save-dev nodemon
 Export a frozen config object reading from `process.env`. Every other file imports from here — never `process.env` directly elsewhere.
 
 Required env vars:
-- `DB_URL` — Neon connection string
+- `DATABASE_URL` — Neon connection string (legacy `DB_URL` accepted as fallback)
 - `JWT_SECRET` — minimum 32 chars
 - `PORT` — defaults to 3000
 - `NODE_ENV` — development / production
 - `TZ` — IANA timezone for both the Node process and the Postgres session timezone (defaults to `Asia/Dubai`). The config module sets `process.env.TZ` early so all `new Date()` / `NOW()` arithmetic happens in Dubai local time.
+- `HEADLESS` — optional Puppeteer override. Defaults to `true` when `NODE_ENV=production`, `false` otherwise.
 - `PROXY_API_KEY` — for proxy rotation (can be empty for now)
 - `REKTCAPTCHA_PATH` — path to unpacked RektCaptcha extension directory (can be empty for now)
 
-Throw a startup error if `DB_URL` or `JWT_SECRET` is missing.
+Throw a startup error if `DATABASE_URL` or `JWT_SECRET` is missing.
 
 ### `src/app.js`
 - `helmet()` for security headers
@@ -74,6 +75,9 @@ Throw a startup error if `DB_URL` or `JWT_SECRET` is missing.
 - Global error handler (log + `{ error: message }` JSON)
 
 ### `ecosystem.config.js`
+PM2 process definitions. The real implementation (see [`ecosystem.config.js`](../ecosystem.config.js)) loads `.env` from the project root, pins `cwd: __dirname`, propagates required env vars (`DATABASE_URL`, `JWT_SECRET`, `SHOPLIKE_API_KEYS`, `HEADLESS`, etc.) into PM2-spawned children via a `SHARED_ENV` block, writes per-process logs to `./logs/`, and sets `kill_timeout: 35000` on `ctr-worker` so the in-flight 30s SIGTERM drain isn't truncated by PM2's default 1.6s.
+
+Skeleton:
 ```js
 module.exports = {
   apps: [
@@ -81,14 +85,16 @@ module.exports = {
       name: 'ctr-api',
       script: './src/server.js',
       instances: 1,
-      env: { NODE_ENV: 'development' }
+      exec_mode: 'fork',
+      env: { NODE_ENV: 'production' /* + SHARED_ENV */ }
     },
     {
       name: 'ctr-worker',
       script: './src/workers/trafficWorker.js',
-      instances: 'max',
+      instances: SHOPLIKE_KEY_COUNT, // one per Shoplike API key
       exec_mode: 'cluster',
-      env: { NODE_ENV: 'production' }
+      kill_timeout: 35000,
+      env: { NODE_ENV: 'production' /* + SHARED_ENV */ }
     }
   ]
 };
@@ -97,13 +103,14 @@ Note: `trafficWorker.js` is created in spec-06. PM2 will error if you start it b
 
 ### `.env.example`
 ```
-DB_URL=postgres://...
+DATABASE_URL=postgres://...
 JWT_SECRET=change_me_to_at_least_32_chars
 PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 TZ=Asia/Dubai
-PROXY_API_KEY=
+HEADLESS=
+SHOPLIKE_API_KEYS=
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
 ```
 
@@ -114,7 +121,7 @@ Node standard + `.env` + `extensions/`
 
 ## Acceptance Criteria
 - [ ] `npm install` completes with no errors
-- [ ] Copy `.env.example` to `.env`, fill in `DB_URL` and `JWT_SECRET`
+- [ ] Copy `.env.example` to `.env`, fill in `DATABASE_URL` and `JWT_SECRET`
 - [ ] `node src/server.js` starts without crashing
 - [ ] `GET http://localhost:3000/health` returns `{ "status": "ok" }`
 - [ ] Unknown routes return 404 JSON (not HTML)

@@ -153,7 +153,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Required
-DB_URL=postgresql://user:pass@host/dbname?sslmode=require
+DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
 JWT_SECRET=your-long-random-secret-here
 
 # Optional (defaults shown)
@@ -162,6 +162,10 @@ NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 # IANA timezone for the Node process and Postgres session (default: Asia/Dubai)
 TZ=Asia/Dubai
+# Puppeteer headless mode. Defaults to true when NODE_ENV=production, false otherwise.
+# PM2 background workers MUST run headless — set HEADLESS=true if you start PM2
+# with NODE_ENV=development. Use HEADLESS=false locally to watch the browser.
+HEADLESS=
 
 # Shoplike rotating proxy — comma-separated list of API keys
 # Each key = one independent rotating IP slot
@@ -171,6 +175,9 @@ SHOPLIKE_API_KEYS=key1,key2,key3,...
 # CAPTCHA extension path (relative to project root)
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
 ```
+
+> The legacy variable name `DB_URL` is still accepted as a fallback for back-compat,
+> but new installations should use `DATABASE_URL`.
 
 Create `dashboard/.env.local`:
 
@@ -322,9 +329,10 @@ cd dashboard && npm install && cd ..
 
 Ensure `.env` in the project root has these values set:
 ```
-DB_URL=...        ← Neon connection string
+DATABASE_URL=...        ← Neon connection string
 JWT_SECRET=...          ← Long random string
 TZ=Asia/Dubai           ← IANA timezone (process + DB session)
+HEADLESS=true           ← Required when running workers under PM2 (default in production)
 SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
 REKTCAPTCHA_PATH=...    ← Path to unpacked RektCaptcha extension
 ```
@@ -650,8 +658,14 @@ Visits within peak windows are 3× more likely to be scheduled than off-peak slo
 
 ## Troubleshooting
 
-**`DB_URL` / `JWT_SECRET` missing errors**
-→ Ensure `.env` exists in the project root and is correctly formatted.
+**`DATABASE_URL` / `JWT_SECRET` missing errors**
+→ Ensure `.env` exists in the project root and is correctly formatted. The legacy name `DB_URL` is also accepted, but `DATABASE_URL` is preferred. When running under PM2, the daemon child only sees the env keys explicitly forwarded by `ecosystem.config.js` — if you add a new env var, propagate it through the `SHARED_ENV` block there too.
+
+**PM2 process stuck `errored` / restart-looping**
+→ Tail the per-process error log: `pm2 logs ctr-worker --err --lines 50` (or `tail -n 100 logs/ctr-worker-err.log`). The most common causes are: (1) `.env` missing in the cwd PM2 was launched from — `ecosystem.config.js` now pins `cwd: __dirname` and loads `.env` from the project root to prevent this; (2) `HEADLESS=false` while running under the PM2 daemon — Chromium can't attach to a foreground display, set `HEADLESS=true` or rely on the production default; (3) `SHOPLIKE_API_KEYS` empty — every worker throws on startup.
+
+**Worker killed mid-job on restart**
+→ `ctr-worker` has `kill_timeout: 35000` so PM2 waits up to 35s for the in-flight 30s SIGTERM drain. Don't reduce this without also lowering the worker's drain budget.
 
 **`Cannot find module 'autoprefixer'`**
 → Run `npm install` inside the `dashboard/` folder.

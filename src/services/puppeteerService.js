@@ -271,7 +271,7 @@ async function runJob(job) {
   }
 
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: config.HEADLESS ? 'new' : false,
     args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null, // use the OS window-size we just set
