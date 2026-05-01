@@ -6,7 +6,6 @@ import { useState } from 'react';
 import {
   LayoutDashboard,
   Megaphone,
-  PlusCircle,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -24,7 +23,6 @@ const sections: Array<{
     items: [
       { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
       { label: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone },
-      { label: 'New Campaign', href: '/dashboard/campaigns/new', icon: PlusCircle },
     ],
   },
 ];
@@ -36,10 +34,19 @@ export default function Sidebar() {
   return (
     <aside
       className={clsx(
-        'sticky top-0 h-screen bg-surface border-r border-border flex flex-col transition-[width] duration-200 shrink-0',
+        'sticky top-0 h-screen bg-surface border-r border-border flex flex-col transition-[width] duration-200 shrink-0 relative',
         collapsed ? 'w-[68px]' : 'w-60'
       )}
     >
+      {/* Collapse toggle — pinned to right edge, AdminLTE/Metronic style */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        className="absolute top-5 -right-3 z-20 w-6 h-6 rounded-full bg-surface border border-border text-muted hover:text-brand hover:border-brand flex items-center justify-center shadow-sm transition-colors"
+      >
+        {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </button>
       {/* Brand */}
       <div className="px-4 py-4 border-b border-border flex items-center gap-2.5 h-16">
         <div className="w-9 h-9 rounded-lg bg-brand/10 text-brand flex items-center justify-center shrink-0">
@@ -94,7 +101,7 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-border space-y-1">
+      <div className="px-3 py-3 border-t border-border">
         <button
           onClick={logout}
           title={collapsed ? 'Sign out' : undefined}
@@ -102,18 +109,6 @@ export default function Sidebar() {
         >
           <LogOut size={18} />
           {!collapsed && <span>Sign Out</span>}
-        </button>
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="w-full flex items-center justify-center gap-2 px-2 py-1.5 rounded-lg text-xs text-subtle hover:bg-surface-hover hover:text-fg transition-colors"
-        >
-          {collapsed ? <ChevronRight size={14} /> : (
-            <>
-              <ChevronLeft size={14} />
-              <span>Collapse</span>
-            </>
-          )}
         </button>
       </div>
     </aside>

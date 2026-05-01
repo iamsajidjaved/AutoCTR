@@ -186,7 +186,7 @@ dashboard/
         [id]/page.tsx              ← AppShell + Card-based detail view
   components/
     AppShell.tsx                   ← auth guard + Sidebar + Topbar + <main>
-    Sidebar.tsx                    ← collapsible (w-60 ↔ w-[68px]), section headings, lucide icons
+    Sidebar.tsx                    ← collapsible (w-60 ↔ w-[68px]), section headings, lucide icons; collapse toggle pinned to the right edge (AdminLTE/Metronic style); nav items: Overview, Campaigns (no 'New Campaign' — entry point lives in Topbar action)
     Topbar.tsx                     ← sticky, title/subtitle, search box, notification bell, ThemeToggle, actions slot
     ThemeProvider.tsx              ← context: theme/toggle/setTheme; persists to localStorage('autoctr-theme')
     ThemeToggle.tsx                ← Sun/Moon icon button
