@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
 const humanBehavior = require('../utils/humanBehavior');
 const deviceProfiles = require('../utils/deviceProfiles');
 const { getProxy } = require('./proxyService');
@@ -25,6 +26,64 @@ function makeTimeout(ms) {
   return new Promise((_, reject) =>
     setTimeout(() => reject(new Error('job_timeout')), ms)
   );
+}
+
+// Bring the freshly-launched Chromium window above all other windows so the
+// operator can clearly see the run in progress. Windows-only, best-effort:
+// any failure is swallowed (the worst outcome is the window stays where
+// Chromium placed it). Skipped entirely in headless mode or on non-Windows.
+//
+// We call out to PowerShell because Node has no built-in Win32 binding for
+// SetForegroundWindow / ShowWindow. The script imports the two APIs via
+// Add-Type, then walks the Puppeteer process tree (the Chrome browser
+// process plus its renderer/GPU children) looking for a non-zero
+// MainWindowHandle — that's the window the user actually sees. If none is
+// found yet (slow launch) we retry once after 600 ms.
+function bringBrowserToFront(browser) {
+  if (config.HEADLESS) return Promise.resolve();
+  if (process.platform !== 'win32') return Promise.resolve();
+
+  const proc = browser.process();
+  const rootPid = proc && proc.pid;
+  if (!rootPid) return Promise.resolve();
+
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32Fg {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+$root = ${rootPid}
+$pids = @($root)
+$pids += (Get-CimInstance Win32_Process -Filter "ParentProcessId=$root" | Select-Object -ExpandProperty ProcessId)
+foreach ($p in $pids) {
+  $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+  if ($proc -and $proc.MainWindowHandle -ne 0) {
+    [void][Win32Fg]::ShowWindow($proc.MainWindowHandle, 9)  # SW_RESTORE
+    [void][Win32Fg]::SetForegroundWindow($proc.MainWindowHandle)
+  }
+}
+`;
+
+  const runOnce = () => new Promise((resolve) => {
+    try {
+      const ps = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+        { stdio: 'ignore', windowsHide: true }
+      );
+      ps.on('error', () => resolve());
+      ps.on('exit', () => resolve());
+    } catch (_) {
+      resolve();
+    }
+  });
+
+  return runOnce().then(() => new Promise((r) => setTimeout(r, 600))).then(runOnce);
 }
 
 async function isCaptchaPresent(page) {
@@ -263,6 +322,11 @@ async function runJob(job) {
     `--lang=${primaryLang}`,
     `--window-size=${profile.viewport.width},${profile.viewport.height}`,
   ];
+  if (!config.HEADLESS) {
+    // Pin the visible window to a predictable spot so the foreground call
+    // below surfaces it where the operator expects.
+    launchArgs.push('--window-position=0,0');
+  }
   if (extensionExists) {
     launchArgs.push(
       `--disable-extensions-except=${extensionPath}`,
@@ -274,6 +338,10 @@ async function runJob(job) {
     headless: config.HEADLESS ? 'new' : false,
     args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],
+  // Pop the Chromium window above all other windows so the operator can watch
+  // the run live. No-op when headless or on non-Windows; never throws.
+  await bringBrowserToFront(browser);
+
     defaultViewport: null, // use the OS window-size we just set
   });
 

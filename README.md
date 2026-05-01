@@ -165,6 +165,9 @@ TZ=Asia/Dubai
 # Puppeteer headless mode. Defaults to true when NODE_ENV=production, false otherwise.
 # PM2 background workers MUST run headless — set HEADLESS=true if you start PM2
 # with NODE_ENV=development. Use HEADLESS=false locally to watch the browser.
+# When HEADLESS=false on Windows, the launched Chromium window is brought to
+# the foreground at startup (best-effort via PowerShell) so you can clearly
+# see each run as it executes. Silent no-op on macOS/Linux.
 HEADLESS=
 
 # Shoplike rotating proxy — comma-separated list of API keys
