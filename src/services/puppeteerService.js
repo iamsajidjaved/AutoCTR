@@ -338,12 +338,12 @@ async function runJob(job) {
     headless: config.HEADLESS ? 'new' : false,
     args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],
+    defaultViewport: null, // use the OS window-size we just set
+  });
+
   // Pop the Chromium window above all other windows so the operator can watch
   // the run live. No-op when headless or on non-Windows; never throws.
   await bringBrowserToFront(browser);
-
-    defaultViewport: null, // use the OS window-size we just set
-  });
 
   const page = await browser.newPage();
 
