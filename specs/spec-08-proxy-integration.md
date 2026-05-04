@@ -123,81 +123,78 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ### `src/providers/shoplikeProxy.js`
 
-Strategy: **strict 1:1 mapping between PM2 workers and API keys**. Each PM2
-worker is pinned for life to exactly one key via `NODE_APP_INSTANCE` (the
-unique 0-based fork index PM2 cluster mode sets). The number of `ctr-worker`
-instances is driven by the configured key count in `ecosystem.config.js`, so
-adding a key to `.env` automatically scales the pool by one.
+Strategy: **cooldown-aware shared key pool (N keys : M workers).** PM2 worker
+count is sized to host CPU cores (`WORKER_CONCURRENCY`), independent of how
+many Shoplike keys are configured. All workers in a single Node process share
+an in-process pool of keys; for each job, the pool hands out a key whose ~60s
+rotation window has elapsed, marks it in-use, and releases it after the proxy
+call returns.
 
-Why strict 1:1 (no wrapping)? A single Shoplike key is gated server-side by
-`nextChange` (~60s rotation window) — two callers hitting the same key in
-rapid succession share whatever IP is currently bound to it. If two PM2
-workers shared a key they would also share an IP, defeating the purpose of
-running multiple workers. The provider therefore **throws on first proxy
-request** if a worker's instance index has no corresponding key, rather than
-silently degrading.
+Why a pool? A single Shoplike key is gated server-side by `nextChange` (~60s
+rotation window). Two callers hitting the same key in rapid succession share
+whatever IP is currently bound to it. With a cooldown-aware pool, the worker
+delays a job for a few seconds rather than reusing an IP — preserving CTR
+diversity without forcing a 1:1 worker:key mapping.
 
-Inside a single worker, `MAX_CONCURRENT_JOBS = 3` jobs share that worker's
-single key (and its current IP) until the next rotation window opens — this
-matches Shoplike's documented per-key rotation gating.
+The pool is **per worker process**. Cross-worker coordination is not
+implemented; Shoplike's server-side rotation gate is the ultimate source of
+truth, so the worst cross-worker race is two impressions sharing one IP within
+the 60s window. If true cross-worker coordination is needed later, promote the
+pool into a `proxy_keys` DB table with `claimed_by_worker` + `last_rotated_at`
+columns and use the same `FOR UPDATE SKIP LOCKED` pattern as `traffic_details`.
 
-When `NODE_APP_INSTANCE` is unset (e.g. running the worker directly via
-`node src/workers/trafficWorker.js` outside PM2), the picker falls back to a
-process-local round-robin counter so dev mode still works.
+Sketch:
 
 ```js
-let rrIndex = 0;
+const ROTATION_WINDOW_MS = 60_000;
+const keyState = new Map();          // key -> { lastRotatedAt, inUse }
 
-function pickKey() {
-  const keys = config.SHOPLIKE_API_KEYS;
-  if (!keys || keys.length === 0) throw new Error('No SHOPLIKE_API_KEYS configured');
+async function acquireKey() {
+  // wait until some key has !inUse && now - lastRotatedAt >= ROTATION_WINDOW_MS
+  // mark it inUse and return
+}
 
-  const pmInstance = process.env.NODE_APP_INSTANCE;
-  if (pmInstance !== undefined && pmInstance !== '') {
-    const idx = parseInt(pmInstance, 10);
-    if (Number.isInteger(idx) && idx >= 0) {
-      if (idx >= keys.length) {
-        throw new Error(
-          `PM2 worker instance ${idx} has no Shoplike key (only ${keys.length} key(s) configured). ` +
-          `Add another key to SHOPLIKE_API_KEYS or reduce ctr-worker instances in ecosystem.config.js.`
-        );
-      }
-      return keys[idx];           // pinned: worker idx ↔ keys[idx]
-    }
-  }
-
-  const key = keys[rrIndex % keys.length];   // dev fallback only
-  rrIndex = (rrIndex + 1) % keys.length;
-  return key;
+function releaseKey(key, { didRotate, nextChangeSeconds }) {
+  // clear inUse; update lastRotatedAt to match Shoplike's view
 }
 
 async function getNewProxy() {
-  const key = pickKey();
-  // call getNewProxy with this key
-  // if response includes nextChange ("must wait"), call getCurrentProxy(key) as fallback
+  const key = await acquireKey();
+  try {
+    const body = await callShoplikeGetNewProxy(key);
+    if (body.status === 'success') {
+      releaseKey(key, { didRotate: true });
+      return parseData(body.data);
+    }
+    if (body.nextChange !== undefined) {
+      const proxy = await getCurrentProxy(key);
+      releaseKey(key, { didRotate: false, nextChangeSeconds: Number(body.nextChange) });
+      return proxy;
+    }
+    releaseKey(key, { didRotate: false });
+    throw new Error(body.mess);
+  } catch (err) {
+    releaseKey(key, { didRotate: false });
+    throw err;
+  }
 }
 ```
 
 ### `ecosystem.config.js`
 
-Worker count is derived from the key count so the 1:1 invariant cannot drift:
+Worker count tracks CPU cores (`WORKER_CONCURRENCY`), no longer keys:
 
 ```js
-require('dotenv').config();
-const SHOPLIKE_KEY_COUNT = (process.env.SHOPLIKE_API_KEYS || '')
-  .split(',').map(k => k.trim()).filter(Boolean).length;
-
-if (SHOPLIKE_KEY_COUNT === 0) {
-  throw new Error('SHOPLIKE_API_KEYS must contain at least one key — workers cannot start.');
-}
+const os = require('os');
+const WORKER_CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY, 10) || os.cpus().length;
 
 module.exports = {
   apps: [
-    { name: 'ctr-api',    script: './src/server.js',                instances: 1 },
+    { name: 'ctr-api',    script: './src/server.js', instances: 1 },
     {
       name: 'ctr-worker',
       script: './src/workers/trafficWorker.js',
-      instances: SHOPLIKE_KEY_COUNT,    // <-- pinned to key count
+      instances: WORKER_CONCURRENCY,    // bounded by host CPU
       exec_mode: 'cluster',
     },
   ],
@@ -301,7 +298,7 @@ Add to `.env`:
 SHOPLIKE_API_KEYS=key1,key2,key3,...
 ```
 
-Multiple keys enable parallel unique IPs: with 17 keys and 3 concurrent jobs per worker instance, each job gets a distinct IP. Round-robin rotation is used per process (`keyIndex` increments on each call).
+Multiple keys broaden the IP pool: each worker runs one job at a time and the cooldown-aware pool avoids handing out a key whose 60s rotation window hasn't elapsed, so distinct keys yield distinct IPs across consecutive jobs. With fewer keys than workers, jobs may briefly wait on `acquireKey()` until a key is rotation-ready.
 
 ---
 
@@ -324,7 +321,7 @@ No changes to Puppeteer code are needed.
 ## Acceptance Criteria
 - [ ] `proxyService.getProxy()` calls `getNewProxy` on the Shop Like provider first
 - [ ] When `getNewProxy` returns a "must wait" error, `getCurrentProxy` is called as fallback for the same key
-- [ ] Multiple concurrent jobs use different keys from the pool (round-robin rotation)
+- [ ] Multiple concurrent jobs use different keys from the pool (cooldown-aware: a key is not reissued until its 60s rotation window has elapsed)
 - [ ] All Puppeteer sessions launch with `--proxy-server=host:port`
 - [ ] `page.authenticate()` is called when `username` is non-empty
 - [ ] Job `ip` field in DB stores the proxy host after completion
