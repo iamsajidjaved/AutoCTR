@@ -16,7 +16,22 @@ const extensionPath = path.resolve(config.REKTCAPTCHA_PATH || './extensions/rekt
 const extensionExists = fs.existsSync(extensionPath);
 if (!extensionExists) {
   console.warn(`[captcha] RektCaptcha extension not found at ${extensionPath}. CAPTCHAs will not be solved.`);
+} else {
+  console.log(`[captcha] RektCaptcha extension will be loaded from ${extensionPath}`);
 }
+
+// Bringing N Chromium windows to the foreground simultaneously causes them
+// to fight for focus on Windows and can destabilise multi-instance runs.
+// Default OFF; opt-in via BRING_BROWSER_TO_FRONT=true for single-instance
+// debugging only.
+const BRING_BROWSER_TO_FRONT =
+  String(process.env.BRING_BROWSER_TO_FRONT || '').toLowerCase() === 'true';
+
+// Give the extension's MV3 service worker a moment to register and write its
+// default settings to chrome.storage.local before we trigger any navigation.
+// recaptcha.js now self-defaults if storage is empty, but the warmup also
+// helps the model files finish caching, which speeds up the first solve.
+const EXTENSION_WARMUP_MS = parseInt(process.env.EXTENSION_WARMUP_MS, 10) || 1500;
 
 function randomBetween(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -339,8 +354,20 @@ async function runJob(job) {
   });
 
   // Pop the Chromium window above all other windows so the operator can watch
-  // the run live. No-op on non-Windows; never throws.
-  await bringBrowserToFront(browser);
+  // the run live. No-op on non-Windows; never throws. Disabled by default in
+  // multi-instance mode (N windows fighting for focus destabilises runs);
+  // enable with BRING_BROWSER_TO_FRONT=true.
+  if (BRING_BROWSER_TO_FRONT) {
+    await bringBrowserToFront(browser);
+  }
+
+  // Brief warmup: lets the RektCaptcha MV3 service worker register and seed
+  // chrome.storage.local before any CAPTCHA can appear. Critical under heavy
+  // multi-instance load where the SW's onInstalled event can race the first
+  // navigation.
+  if (extensionExists && EXTENSION_WARMUP_MS > 0) {
+    await new Promise(r => setTimeout(r, EXTENSION_WARMUP_MS));
+  }
 
   const page = await browser.newPage();
 

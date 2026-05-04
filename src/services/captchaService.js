@@ -77,8 +77,16 @@ async function handleCaptcha(page) {
   const present = await isCaptchaPresent(page);
   if (!present) return { solved: false, reason: 'not_present' };
 
+  const startedAt = Date.now();
+  console.log(`[captcha] pid=${process.pid} CAPTCHA detected at ${page.url()} — waiting for RektCaptcha to solve (timeout ${CAPTCHA_SOLVE_TIMEOUT_MS}ms)`);
+
   const solved = await waitForCaptchaSolved(page);
-  if (!solved) return { solved: false, reason: 'timeout' };
+  if (!solved) {
+    console.warn(`[captcha] pid=${process.pid} TIMEOUT after ${Date.now() - startedAt}ms at ${page.url()} — extension did not solve. Likely causes: SW not ready, model load failure, image fetch blocked by proxy, or unsupported challenge type.`);
+    return { solved: false, reason: 'timeout' };
+  }
+
+  console.log(`[captcha] pid=${process.pid} solved in ${Date.now() - startedAt}ms`);
 
   // Wait for Google's automatic post-solve navigation to complete before
   // returning, so callers don't operate on a destroyed execution context.
