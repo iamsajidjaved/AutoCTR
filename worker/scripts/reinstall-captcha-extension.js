@@ -8,12 +8,15 @@
 //   REKTCAPTCHA_BASELINE_WASM=true node scripts/reinstall-captcha-extension.js
 //
 // --force-baseline-wasm (or env REKTCAPTCHA_BASELINE_WASM=true): after install,
-// delete dist/ort-wasm-simd*.wasm and dist/ort-wasm-threaded.wasm so onnxruntime
-// is forced to load dist/ort-wasm.wasm (the baseline scalar build). Use this on
-// hosts where the SIMD/threaded variants fail to initialise inside the bframe
-// (symptom: extension clicks the "I'm not a robot" checkbox but never selects
-// tiles — see README.md → Troubleshooting → "CAPTCHA solver stuck after
-// checkbox click"). Trade-off: ~30-50% slower per solve, max compatibility.
+// overwrite dist/ort-wasm-simd.wasm, dist/ort-wasm-threaded.wasm, and
+// dist/ort-wasm-simd-threaded.wasm with a copy of dist/ort-wasm.wasm so that
+// whichever variant onnxruntime-web picks based on CPU feature detection, it
+// loads the baseline scalar build. Use this on hosts where the SIMD/threaded
+// variants fail to load inside the bframe (symptom: extension clicks the
+// "I'm not a robot" checkbox but never selects tiles, console shows
+// `chrome-extension://<id>/dist/ort-wasm-simd.wasm net::ERR_FILE_NOT_FOUND`
+// — see README.md → Troubleshooting → "CAPTCHA solver stuck after checkbox
+// click"). Trade-off: ~30-50% slower per solve, max compatibility.
 //
 // No npm install needed — uses only Node.js built-ins.
 
@@ -194,36 +197,43 @@ async function main() {
     // CAPTCHAs without manual popup interaction (required by spec-09).
     patchAutoSolve(path.join(DEST, 'background.js'));
 
-    // Optional: strip SIMD/threaded WASM variants so onnxruntime is forced
-    // onto the baseline ort-wasm.wasm build. See header comment for why.
+    // Optional: force the baseline WASM build by overwriting all variant
+    // names with the baseline file. See header comment for why.
+    //
+    // We OVERWRITE (not delete) because onnxruntime-web's JS picks the variant
+    // name based on CPU feature detection (SIMD, threading, JSEP), so deleting
+    // the SIMD variant just causes ERR_FILE_NOT_FOUND when the JS still asks
+    // for it. Copying baseline over every variant name guarantees that
+    // whichever URL the JS fetches, it gets a working WASM file. Exports are
+    // a strict superset relationship — the baseline build's exports satisfy
+    // every call the JS makes; only the internal bodies differ (no SIMD
+    // opcodes), so the runtime is correct just slower.
     const baselineWasm =
       process.argv.includes('--force-baseline-wasm') ||
       String(process.env.REKTCAPTCHA_BASELINE_WASM || '').toLowerCase() === 'true';
     if (baselineWasm) {
       const distDir = path.join(DEST, 'dist');
-      const stripped = [];
-      try {
-        for (const f of fs.readdirSync(distDir)) {
-          // Keep only the baseline ort-wasm.wasm. Remove any other .wasm
-          // (SIMD, threaded, simd-threaded, JSEP variants).
-          if (f.endsWith('.wasm') && f !== 'ort-wasm.wasm') {
-            fs.unlinkSync(path.join(distDir, f));
-            stripped.push(f);
-          }
-        }
-      } catch (err) {
-        console.error(`[reinstall] WARNING: could not strip WASM variants from ${distDir}: ${err.message}`);
-      }
-      if (stripped.length > 0) {
-        console.log(`[reinstall] Baseline-WASM mode: removed ${stripped.length} non-baseline WASM file(s): ${stripped.join(', ')}`);
-      } else {
-        console.log(`[reinstall] Baseline-WASM mode: nothing to strip (only ort-wasm.wasm present).`);
-      }
       const baselinePath = path.join(distDir, 'ort-wasm.wasm');
       if (!fs.existsSync(baselinePath)) {
-        console.error(`[reinstall] FATAL: baseline ort-wasm.wasm missing at ${baselinePath} after strip. ONNX will not initialise. Re-run without --force-baseline-wasm.`);
+        console.error(`[reinstall] FATAL: baseline ort-wasm.wasm missing at ${baselinePath}. Cannot apply --force-baseline-wasm.`);
         process.exit(1);
       }
+      // Standard onnxruntime-web variants the JS wrapper may request.
+      const VARIANTS = [
+        'ort-wasm-simd.wasm',
+        'ort-wasm-threaded.wasm',
+        'ort-wasm-simd-threaded.wasm',
+      ];
+      const overwritten = [];
+      for (const v of VARIANTS) {
+        try {
+          fs.copyFileSync(baselinePath, path.join(distDir, v));
+          overwritten.push(v);
+        } catch (err) {
+          console.error(`[reinstall] WARNING: could not copy baseline to ${v}: ${err.message}`);
+        }
+      }
+      console.log(`[reinstall] Baseline-WASM mode: overwrote ${overwritten.length} variant file(s) with baseline content: ${overwritten.join(', ')}`);
     }
 
     console.log(

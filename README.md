@@ -462,14 +462,18 @@ All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so t
 → Verify `worker/extensions/rektcaptcha/manifest.json` exists on the worker host. The `REKTCAPTCHA_PATH` is relative to the `worker/` directory.
 
 **CAPTCHA solver stuck after checkbox click** (the extension clicks "I'm not a robot" but never selects image tiles, every job ends with `captcha_timeout`)
-→ This is a host-level failure of RektCaptcha's ONNX runtime inside the bframe (image-challenge iframe). Other PCs running the same code work fine. Triage in order:
+→ Almost always caused by missing/quarantined `dist/*.wasm` files in the RektCaptcha extension. The bframe (image-challenge iframe) loads onnxruntime-web, which fetches one of `dist/ort-wasm.wasm`, `dist/ort-wasm-simd.wasm`, `dist/ort-wasm-threaded.wasm`, or `dist/ort-wasm-simd-threaded.wasm` based on CPU feature detection. If the chosen file is missing the bframe console shows `chrome-extension://<id>/dist/ort-wasm-*.wasm net::ERR_FILE_NOT_FOUND` followed by `no available backend found`, the extension never solves the CAPTCHA, and the worker times out 120 s per job.
 
-1. **Read the worker boot log** (`pm2 logs ctr-worker --lines 100`). Look for the line `[captcha] RektCaptcha OK at ... (models: 10 .ort files, X.X MB; wasm: N files, Y.Y MB)`. Compare the file counts and total sizes against a known-good worker. Mismatched sizes (or files reported under 1 KB / a `WARNING: suspiciously small files` line) = antivirus has truncated extension files. Add an AV exclusion for `worker/extensions/` and the puppeteer Chromium cache directory (typically `%LOCALAPPDATA%\puppeteer` or `~/.cache/puppeteer`), then run `npm run captcha:reinstall` and `pm2 restart all`.
-2. **Run the strengthened smoke test on the failing host:** `npm run captcha:test 4`. The new criterion only passes when the extension actually selects image tiles (not just opens the bframe). A `FAIL` here confirms the host is broken; the JSON in the failure line shows `tilesSelected: 0` if the model never produced output.
-3. **Inspect a real timeout dump.** When a CAPTCHA times out, the worker writes `worker/logs/captcha-timeout-<pid>-<ts>.png` and `.html`, and prints a single warning line containing: `Final bframe`, `WASM probe`, `Console (last 10)`, `PageErrors (last 5)`. The most diagnostic field is the bframe `Console` log — RektCaptcha emits lines starting with `rektcaptcha:` when its model loads. **Their absence after the bframe opens means the ONNX runtime never initialised**, almost always because:
-   - The `WASM probe` shows all `dist/*.wasm` fetches with `error` or `status >= 400` or `size: 0` → AV is blocking the WASM (apply step 1's exclusion + reinstall).
-   - The `WASM probe` shows non-zero sizes but the model still didn't run → CPU lacks WASM SIMD support, or Chromium's GPU process is unhealthy. Apply the next two fixes.
-4. **Force the baseline WASM build.** Reinstall the extension stripped of its SIMD/threaded variants so onnxruntime-web is forced onto the universally-supported `ort-wasm.wasm`:
+**Automatic self-heal** is now built in. On every worker process boot, [puppeteerService.js](shared/services/puppeteerService.js) checks the four WASM variants and, if any are missing or truncated below 1 KB, copies the baseline `dist/ort-wasm.wasm` over them. The boot log will show:
+```
+[captcha] pid=… SELF-HEAL: copied baseline ort-wasm.wasm over N missing/truncated variant(s): …
+```
+If you see this line, antivirus is quarantining the extension. The heal makes the next CAPTCHA work, but **AV will quarantine the variants again on the next reinstall** unless you add an exclusion. Triage in order:
+
+1. **Read the worker boot log** (`pm2 logs ctr-worker --lines 100`). Look for the `[captcha] RektCaptcha OK at ... (models: 10 .ort files, X.X MB; wasm: N files, Y.Y MB)` line. If you see a `SELF-HEAL` warning, AV is the cause — apply the AV exclusion below and run `npm run captcha:reinstall`. If file totals or counts differ from a known-good worker, AV has truncated something the heal couldn't recover.
+2. **Run the strengthened smoke test on the failing host:** `npm run captcha:test 4`. The new criterion only passes when the extension actually selects image tiles (not just opens the bframe). A `FAIL` here means the host is still broken after the heal.
+3. **Inspect a real timeout dump.** When a CAPTCHA times out, the worker writes `worker/logs/captcha-timeout-<pid>-<ts>.png` and `.html`, plus a single warning line containing `Final bframe`, `WASM probe`, `Console (last 10)`, `PageErrors (last 5)`. The most diagnostic field is the bframe `Console` log — RektCaptcha emits lines starting with `rektcaptcha:` when its model loads. Their absence after the bframe opens means ONNX runtime never initialised. Cross-reference with `WASM probe`: any entries with `error`, `status >= 400`, or `size: 0` confirm AV is still blocking files even after the heal copy.
+4. **Force the baseline WASM build.** If the heal isn't enough (e.g. AV deletes the copy mid-run), reinstall with all variant slots overwritten with the baseline content:
    ```powershell
    # Run from worker/
    $env:REKTCAPTCHA_BASELINE_WASM="true"; npm run captcha:reinstall
@@ -477,12 +481,16 @@ All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so t
    node scripts/reinstall-captcha-extension.js --force-baseline-wasm
    pm2 restart all
    ```
-   The baseline build solves ~30-50 % slower per CAPTCHA but works on every CPU and does not depend on `crossOriginIsolated` / `SharedArrayBuffer`. The boot log will now show `Baseline WASM mode: only ort-wasm.wasm present`.
-5. **Force software rendering.** If step 4 doesn't resolve it, set `WORKER_FORCE_SOFTWARE_RENDER=true` in `worker/.env` and `pm2 restart all`. This launches Chromium with SwiftShader (pure-CPU GL) so the bframe's WebAssembly+OffscreenCanvas pipeline can't deadlock on a broken or stale GPU driver. ~10-20 % extra CPU per browser.
-6. **Fast-fail latch.** After the first CAPTCHA timeout per worker process where two of the above signals are detected (`tiles_never_selected`, `no_rektcaptcha_console_log`, `wasm_fetch_failed`), the worker latches into FAST-FAIL mode and returns `captcha_timeout` after 5 s for every subsequent job in that PID instead of burning the full 120 s. This protects the queue from a misconfigured host. The latch is cleared by `pm2 restart all`.
+   The script overwrites `ort-wasm-simd.wasm`, `ort-wasm-threaded.wasm`, and `ort-wasm-simd-threaded.wasm` with copies of `ort-wasm.wasm`. Whichever variant onnxruntime picks, the fetched bytes are the baseline scalar build — works on every CPU and does not depend on `crossOriginIsolated` / `SharedArrayBuffer`. ~30-50 % slower per CAPTCHA.
+5. **Force software rendering.** If steps 1-4 don't resolve it, set `WORKER_FORCE_SOFTWARE_RENDER=true` in `worker/.env` and `pm2 restart all`. Launches Chromium with SwiftShader (pure-CPU GL) so the bframe's WebAssembly+OffscreenCanvas pipeline can't deadlock on a broken or stale GPU driver. ~10-20 % extra CPU per browser.
+6. **Fast-fail latch.** After the first CAPTCHA timeout per worker process where two of the signals `tiles_never_selected`, `no_rektcaptcha_console_log`, `wasm_fetch_failed` are detected, the worker latches into FAST-FAIL mode and returns `captcha_timeout` after 5 s for every subsequent job in that PID instead of burning the full 120 s. This protects the queue from a misconfigured host. The latch is cleared by `pm2 restart all`.
 
-**Required AV exclusions (Windows Defender + corporate AV)**
+**Required Windows Defender + corporate AV exclusions** (this is the permanent fix — the self-heal is a workaround):
 - `<repo>\worker\extensions\` — extension files including `models/*.ort` and `dist/*.wasm`.
 - The puppeteer Chromium cache (run `npx puppeteer browsers list` to find the exact path; usually `%LOCALAPPDATA%\puppeteer\chrome\<rev>\`).
 - The Chromium temp profile directory (`%TEMP%\puppeteer_dev_profile-*`).
-Without these, AV silently quarantines `.wasm` / `.ort` files mid-run on some PCs.
+
+To add the extensions exclusion via PowerShell as Admin:
+```powershell
+Add-MpPreference -ExclusionPath "C:\Users\Sajid\Documents\AutoCTR\worker\extensions"
+```

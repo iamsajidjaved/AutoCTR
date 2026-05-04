@@ -52,6 +52,64 @@ function statSize(p) {
   try { return fs.statSync(p).size; } catch (_) { return -1; }
 }
 
+// Self-heal missing/zero-byte WASM variants by copying the baseline
+// `dist/ort-wasm.wasm` over them. onnxruntime-web's CPU feature-detection
+// picks ONE of {ort-wasm.wasm, ort-wasm-simd.wasm, ort-wasm-threaded.wasm,
+// ort-wasm-simd-threaded.wasm} based on the runtime — if the chosen file is
+// missing (AV quarantined, partial download, etc.), the fetch fails inside
+// the bframe with ERR_FILE_NOT_FOUND, the extension never solves the
+// CAPTCHA, and the worker times out 120 s per job.
+//
+// Copying the baseline over the missing names is safe: all 4 variants are
+// built from the same onnxruntime source with the same exported symbols,
+// only the internal bodies differ (use of WASM SIMD opcodes / threading).
+// The JS wrapper invokes the same exports either way; performance is the
+// only thing that changes (baseline is ~30-50% slower per solve).
+//
+// This runs ONCE at module load. It does NOT touch healthy files (existing
+// non-zero variants are left alone). Logs every action so the operator can
+// see in pm2 logs that the host had to be repaired.
+function selfHealMissingWasm() {
+  if (!extensionExists) return;
+  const distDir = path.join(extensionPath, 'dist');
+  const baselinePath = path.join(distDir, 'ort-wasm.wasm');
+  const baselineSize = statSize(baselinePath);
+  if (baselineSize <= 0) {
+    // Without the baseline we have nothing to copy from. The extension is
+    // beyond self-heal; operator must run `npm run captcha:reinstall`.
+    return;
+  }
+  const VARIANTS = [
+    'ort-wasm-simd.wasm',
+    'ort-wasm-threaded.wasm',
+    'ort-wasm-simd-threaded.wasm',
+  ];
+  const repaired = [];
+  for (const v of VARIANTS) {
+    const p = path.join(distDir, v);
+    const s = statSize(p);
+    // Repair if the file is missing OR truncated to <1 KB (a common AV
+    // quarantine pattern: it replaces the file with a stub).
+    if (s < 1024) {
+      try {
+        fs.copyFileSync(baselinePath, p);
+        repaired.push(`${v}(was=${s < 0 ? 'missing' : s + 'B'})`);
+      } catch (err) {
+        console.error(`[captcha] WARNING: could not self-heal ${v}: ${err.message}`);
+      }
+    }
+  }
+  if (repaired.length > 0) {
+    console.warn(
+      `[captcha] pid=${process.pid} SELF-HEAL: copied baseline ort-wasm.wasm over ${repaired.length} missing/truncated variant(s): ${repaired.join(', ')}. ` +
+      `Root cause is almost certainly antivirus quarantine — add an AV exclusion for ${extensionPath} or CAPTCHAs will keep being broken on every reinstall. ` +
+      `See README.md → Troubleshooting → "CAPTCHA solver stuck after checkbox click".`
+    );
+    return true;
+  }
+  return false;
+}
+
 function diagnoseExtension() {
   if (!extensionExists) {
     console.error(`[captcha] FATAL: RektCaptcha extension folder not found at ${extensionPath}. CAPTCHAs will NOT be solved. Check REKTCAPTCHA_PATH env var and that the folder was deployed to this machine.`);
@@ -107,6 +165,11 @@ function diagnoseExtension() {
 }
 
 diagnoseExtension();
+// If the heal repaired anything, re-run diagnostics so the boot log reflects
+// the recovered state instead of the pre-heal sizes.
+if (selfHealMissingWasm()) {
+  diagnoseExtension();
+}
 
 // Bringing N Chromium windows to the foreground simultaneously causes them
 // to fight for focus on Windows and can destabilise multi-instance runs.
