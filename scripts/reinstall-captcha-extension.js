@@ -92,6 +92,23 @@ function findZipOffset(buf) {
   return -1;
 }
 
+// Enable the extension's built-in auto-open and auto-solve options.
+// The Chrome Web Store build ships with both set to false (!1); patching
+// them to true (!0) is required so Puppeteer's temp profiles auto-solve
+// without manual popup interaction (spec-09 one-time setup requirement).
+function patchAutoSolve(bgPath) {
+  let src = fs.readFileSync(bgPath, 'utf8');
+  const before = src;
+  src = src.replace(/recaptcha_auto_open:!1/g, 'recaptcha_auto_open:!0');
+  src = src.replace(/recaptcha_auto_solve:!1/g, 'recaptcha_auto_solve:!0');
+  if (src === before) {
+    console.log('[reinstall] auto-solve defaults already enabled — no patch needed');
+  } else {
+    fs.writeFileSync(bgPath, src, 'utf8');
+    console.log('[reinstall] Patched background.js: recaptcha_auto_open + recaptcha_auto_solve → true');
+  }
+}
+
 async function main() {
   const stamp = Date.now();
   const crxFile = path.join(os.tmpdir(), `rektcaptcha-${stamp}.crx`);
@@ -159,6 +176,11 @@ async function main() {
         .readdirSync(path.join(DEST, 'models'))
         .filter((f) => f.endsWith('.ort')).length;
     } catch (_) {}
+
+    // The extension ships with recaptcha_auto_open and recaptcha_auto_solve
+    // both set to false (!1). Enable them so Puppeteer profiles auto-solve
+    // CAPTCHAs without manual popup interaction (required by spec-09).
+    patchAutoSolve(path.join(DEST, 'background.js'));
 
     console.log(
       `[reinstall] All required files verified. Models: ${modelCount} .ort files`

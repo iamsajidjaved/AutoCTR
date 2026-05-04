@@ -25,7 +25,8 @@
       "Skill(update-config:*)",
       "Bash(node *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Sajid\\\\Documents\\\\AutoCTR\" -Recurse -Depth 2)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "Bash(pm2 restart *)"
     ]
   }
 }
