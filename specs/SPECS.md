@@ -31,3 +31,8 @@ Run `/progress` to see live status. This file is the canonical list.
 | **Click / Visit** | The PM2 worker searches the keyword on Google, solves any Google CAPTCHA if it appears, finds the target website in the SERP, clicks on it, and interacts with the site for the configured dwell period (scroll, internal navigation, text selection). |
 | **CTR** | Click-through rate (%). Percentage of total visits that are clicks vs. impressions. e.g. `ctr=20` → 20% clicks, 80% impressions. |
 | **Dwell time** | Seconds spent on the target site during a click/visit. Controlled by `min_dwell_seconds` / `max_dwell_seconds`. Not applicable to impressions. |
+
+## Project-Wide Invariants
+- **SERP-click only:** Click/Visit jobs reach the target by clicking its organic anchor on the Google SERP via a real mouse event so Google records a genuine SERP click with a Google referrer. Never `page.goto(targetUrl)`, never copy the SERP `href` and navigate directly, never `window.open` the target. The only allowed direct navigation in a job is `page.goto('https://www.google.com')` to start the search. See [spec-07](spec-07-puppeteer-execution.md#critical-invariant--serp-click-only).
+- **Impressions never click the target:** Impression jobs search Google and dwell on the SERP only; the target domain may be hovered/scrolled past but is never clicked.
+- **Target not on SERP page 1 → fail with `not_in_serp`:** Multi-page pagination is out of scope for spec-07.

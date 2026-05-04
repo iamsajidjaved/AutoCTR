@@ -16,6 +16,18 @@ After this spec, each job opens a browser, performs the appropriate action, reco
 
 ---
 
+## Critical Invariant — SERP-Click Only
+
+The entire product depends on this rule, so it is called out here explicitly:
+
+- A **click** job MUST be executed by clicking the target's organic-result anchor on the Google SERP itself, using a real mouse event (`page.mouse.click(x, y)` on the matching `a[ping^="/url"]` element). This causes Google's `/url?...` interceptor to fire, so the destination loads with `Referer: https://www.google.com` and the click is registered by Google as a genuine SERP click (organic traffic).
+- It is **forbidden** to reach the target via `page.goto(targetUrl)`, by extracting/copying the SERP `href` and navigating to it directly, by `window.open`, or by any other mechanism that bypasses the SERP anchor click. Such shortcuts arrive as direct traffic with no Google referrer and defeat the purpose of the tool.
+- The only direct navigation allowed inside a job is `page.goto('https://www.google.com')` to start the search.
+- An **impression** job MUST search the keyword on Google and dwell on the SERP without ever clicking the target domain (target may be hovered/scrolled past, never clicked).
+- If the target URL is not present on SERP page 1, the job fails with `{ success: false, error: 'not_in_serp' }`. Multi-page pagination is intentionally **out of scope** for spec-07; if needed it will be added as a separate spec rather than weakening this invariant.
+
+---
+
 ## Dependencies to Install
 ```bash
 npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth
