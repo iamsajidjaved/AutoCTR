@@ -380,6 +380,30 @@ async function runJob(job) {
   // Pin the visible window to a predictable spot so the foreground call
   // below surfaces it where the operator expects.
   launchArgs.push('--window-position=0,0');
+
+  // Prevent Chrome from throttling the extension's ONNX inference mid-solve.
+  // On lower-spec or multi-instance machines Chrome deprioritises background
+  // renderers and JS timers once the window is occluded or loses focus. This
+  // starves the model inference loop so the extension clicks the checkbox but
+  // then stalls before selecting any tiles. All three flags are needed:
+  //   * disable-background-timer-throttling — keeps setTimeout/setInterval
+  //     running at full rate even in background/occluded windows
+  //   * disable-renderer-backgrounding — keeps the bframe renderer at normal
+  //     CPU priority when another window is on top
+  //   * disable-backgrounding-occluded-windows — prevents the entire renderer
+  //     process from being suspended when the Chromium window is hidden behind
+  //     another (common when multiple workers run simultaneously)
+  launchArgs.push(
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    '--disable-backgrounding-occluded-windows'
+  );
+
+  // Explicitly enable WASM SIMD — required by the ONNX runtime bundled with
+  // RektCaptcha for fast tile classification. Some Chromium builds and older
+  // hardware configurations have it off by default; without it the inference
+  // silently falls back to a scalar path that may hang or produce no output.
+  launchArgs.push('--enable-features=WebAssemblySimd');
   if (extensionExists) {
     launchArgs.push(
       `--disable-extensions-except=${extensionPath}`,
