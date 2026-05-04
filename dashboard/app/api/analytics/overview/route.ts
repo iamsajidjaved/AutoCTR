@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser, toErrorResponse } from '@/lib/server-auth';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const analyticsService = require('../../../../../src/services/analyticsService');
+const analyticsService = require('@server/services/analyticsService');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

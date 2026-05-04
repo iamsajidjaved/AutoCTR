@@ -9,9 +9,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const jwt = require('jsonwebtoken');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const config = require('../../src/config');
+const config = require('@server/config');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const userModel = require('../../src/models/userModel');
+const userModel = require('@server/models/userModel');
 
 export type AuthUser = {
   id: string;

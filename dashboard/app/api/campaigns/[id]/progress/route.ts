@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser, toErrorResponse } from '@/lib/server-auth';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const campaignService = require('../../../../../../src/services/campaignService');
+const campaignService = require('@server/services/campaignService');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const campaignCompletionService = require('../../../../../../src/services/campaignCompletionService');
+const campaignCompletionService = require('@server/services/campaignCompletionService');
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
