@@ -269,7 +269,7 @@ npm run dashboard
 | Name | Script | Instances | Mode | Purpose |
 |---|---|---|---|---|
 | `ctr-api` | `src/server.js` | 1 | fork | Express REST API |
-| `ctr-worker` | `src/workers/trafficWorker.js` | = SHOPLIKE_API_KEYS count | cluster | Visit execution workers (1:1 with API keys) |
+| `ctr-worker` | `src/workers/trafficWorker.js` | = `WORKER_CONCURRENCY` (defaults to host CPU count) | cluster | Visit execution workers — each runs **exactly one job at a time**, so total in-flight impressions = instance count |
 
 #### Start Commands
 
@@ -339,8 +339,9 @@ Ensure `.env` in the project root has these values set:
 DATABASE_URL=...        ← Neon connection string
 JWT_SECRET=...          ← Long random string
 TZ=Asia/Dubai           ← IANA timezone (process + DB session)
-SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
+SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys (pooled across workers)
 REKTCAPTCHA_PATH=...    ← Path to unpacked RektCaptcha extension
+WORKER_CONCURRENCY=     ← Optional; defaults to host CPU count
 ```
 
 Ensure `dashboard/.env.local` contains:
@@ -388,9 +389,11 @@ pm2 logs ctr-worker
 ```
 Expected output:
 ```
-[worker-1234] fetched 5 jobs
+[worker-1234] starting | NODE_ENV=production | headless=false | worker_concurrency=8 | jobs_per_worker=1
+[worker-1234] claimed 1 jobs
 [worker-1234] job abc-123 starting (type=click, device=mobile)
 [worker-1234] job abc-123 completed
+[worker-1234] claimed 1 jobs
 [worker-1234] job def-456 starting (type=impression, device=desktop)
 [worker-1234] job def-456 completed
 ```
@@ -566,23 +569,34 @@ Access at `http://localhost:3001` after running `npm run dashboard`.
 
 ## Worker Architecture
 
-Workers run as PM2 cluster instances (`ctr-worker`). Each instance independently polls the database in a tight loop:
+### Concurrency model — 1 process, 1 job
+
+Workers run as PM2 cluster instances (`ctr-worker`). The number of instances equals `WORKER_CONCURRENCY`, which defaults to the host's CPU core count (`os.cpus().length`). **Each worker processes exactly one traffic visit at a time** — total in-flight impressions across the system therefore never exceed `WORKER_CONCURRENCY`.
+
+When more visits are due than there are workers, the surplus simply waits in the database with `status='pending'` and is drained as workers free up. The `traffic_details` table itself is the queue. Example: on an 8-core box with 80 due visits, exactly 8 run at any moment and the remaining 72 are picked up in waves.
+
+This bounded parallelism is intentional — both to avoid CPU/RAM saturation on the host and to keep CTR realistic. Bursting hundreds of impressions in parallel from one machine is a strong robotic signal to Google's anti-fraud systems.
+
+Override per-host: set `WORKER_CONCURRENCY=4` (for example) in `.env` before `pm2 start`.
+
+### Polling loop
+
+Each instance independently polls the database in a tight loop:
 
 ```
 Every 5 seconds:
-  1. SELECT up to 5 pending+due visits WHERE campaign.status = 'running'
-     FOR UPDATE SKIP LOCKED  ← prevents double-claiming
-  2. For each visit (up to 3 in parallel):
-     a. Mark visit → 'running'
-     b. Acquire rotating proxy
-     c. Launch stealth Chromium → Google → keyword search → (click target) → dwell
-     d. Mark visit → 'completed' or 'failed'
-     e. Check if campaign is now fully complete
+  1. Atomically claim 1 pending+due visit WHERE campaign.status = 'running'
+     via UPDATE ... RETURNING wrapping SELECT ... FOR UPDATE SKIP LOCKED
+     (locks the row AND flips it to status='running' in one statement)
+  2. Acquire a rotating proxy from the cooldown-aware key pool
+  3. Launch stealth Chromium → Google → keyword search → (click target) → dwell
+  4. Mark visit → 'completed' or 'failed'
+  5. Check if campaign is now fully complete
 ```
 
 `FOR UPDATE SKIP LOCKED` ensures no two workers process the same visit even when running on the same machine or across distributed infrastructure.
 
-**Graceful shutdown:** On `SIGTERM`, the worker stops accepting new batches and waits up to 30 seconds for in-flight jobs to finish before exiting.
+**Graceful shutdown:** On `SIGTERM`, the worker stops accepting new batches and waits up to 30 seconds for the in-flight job to finish before exiting (PM2's `kill_timeout` is set to 35s to honour this).
 
 ---
 
@@ -594,26 +608,22 @@ The proxy service iterates through registered providers in order, falling back t
 
 - **Shoplike** (`src/providers/shoplikeProxy.js`) — calls the Shoplike rotating proxy API
 
-### Multi-Key Pool (IP Diversity)
+### Cooldown-aware key pool
 
-Each Shoplike API key controls one rotating IP slot independently. AutoCTR enforces a **strict 1:1 mapping between PM2 workers and API keys** so every worker has its own dedicated rotating IP.
+Each Shoplike API key controls one rotating IP slot, gated server-side by a ~60s rotation window. Calling `getNewProxy` on a key inside that window returns the SAME live IP it just had.
+
+Worker count is sized to CPU cores (`WORKER_CONCURRENCY`), independent of how many keys you configure. All workers share an in-process **cooldown-aware key pool**: for each job the pool hands out a key whose 60s window has elapsed, marks it in-use, and releases it after the proxy call returns. If no key is currently rotation-ready the worker waits a few seconds rather than reissuing a stale IP.
 
 Configure your keys as a comma-separated list:
 ```env
 SHOPLIKE_API_KEYS=key1,key2,key3,...
 ```
 
-`ecosystem.config.js` reads `SHOPLIKE_API_KEYS` from `.env` at PM2 start and sets `ctr-worker` `instances` to exactly the key count. Inside the provider, each worker reads PM2's `NODE_APP_INSTANCE` env var (the unique 0-based fork index) and binds itself to `keys[instance]` for life:
+Operational guidance:
 
-- Worker `0` → `keys[0]`
-- Worker `1` → `keys[1]`
-- … (one-to-one, no wrapping)
-
-If a worker's instance index has no matching key, the provider throws on first proxy request rather than silently sharing a key with another worker. Adding a key to `.env` and running `pm2 restart ecosystem.config.js --update-env` automatically scales the worker pool by one.
-
-Why not rotate keys per call? A single Shoplike key is gated server-side by `nextChange` (~60s rotation window). Two callers hitting the same key in rapid succession share whatever IP is currently bound to it — pinning per-process is the only way to guarantee distinct IPs across concurrent workers. Inside one worker, the in-process `MAX_CONCURRENT_JOBS = 3` jobs intentionally share that worker's single key (and current IP) until the next rotation opens.
-
-When `NODE_APP_INSTANCE` is unset (e.g. running `node src/workers/trafficWorker.js` directly outside PM2), the provider falls back to a process-local round-robin counter so dev mode still works.
+- **More keys = more parallel distinct IPs.** With 8 cores and 8 keys, every concurrent visit can rotate to a fresh IP. With 8 cores and 2 keys, jobs may briefly queue waiting for a key whose cooldown has elapsed.
+- **The pool is per worker process.** Cross-worker coordination is not implemented; Shoplike's server-side rotation gate is the ultimate source of truth, so the worst cross-worker race is two impressions sharing one IP within the 60s window.
+- **Key:worker is N:M.** Adding or removing a key in `.env` does not change the worker count; only `WORKER_CONCURRENCY` (or CPU count) does.
 
 **Adding a new provider:**
 
