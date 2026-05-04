@@ -1,0 +1,432 @@
+# AutoCTR — Google CTR Simulation Tool
+
+AutoCTR is a split-architecture tool that automates Google CTR (Click-Through Rate) simulation:
+
+- **Dashboard + API** — a Next.js app deployed to **Vercel**. Users register, create campaigns, and watch live progress. All HTTP endpoints are Next.js Route Handlers under `/api/*` running on Vercel's Node.js serverless runtime, talking directly to Neon PostgreSQL.
+- **Workers** — Node.js + Puppeteer + PM2 processes that run on **local PCs** (one or many). They poll the same Neon database, claim due visits, and execute them headed via stealth Chromium with rotating proxies.
+
+The two halves share nothing but the database. Spin up as many local worker hosts as you need; the Vercel side never sees them.
+
+---
+
+## Table of Contents
+
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Repository Layout](#repository-layout)
+- [Environment Variables](#environment-variables)
+- [Setup](#setup)
+  - [Database](#database)
+  - [Dashboard on Vercel](#dashboard-on-vercel)
+  - [Worker host (local PC)](#worker-host-local-pc)
+- [Running Locally (dev)](#running-locally-dev)
+- [PM2 Worker Reference](#pm2-worker-reference)
+- [API Reference](#api-reference)
+- [Campaign Lifecycle](#campaign-lifecycle)
+- [Worker Architecture](#worker-architecture)
+- [Proxy Integration](#proxy-integration)
+- [CAPTCHA Handling](#captcha-handling)
+- [Smart Scheduling](#smart-scheduling)
+- [Security Notes](#security-notes)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Architecture
+
+```
+                 ┌──────────────────────┐
+                 │   Vercel (cloud)     │
+                 │  ┌────────────────┐  │
+   user ───────► │  │ Next.js App    │  │
+   browser       │  │ (UI + /api/*)  │  │
+                 │  └───────┬────────┘  │
+                 └──────────┼───────────┘
+                            │ TLS/HTTP
+                            ▼
+                 ┌──────────────────────┐
+                 │   Neon PostgreSQL    │ ◄────── shared state of truth
+                 └──────────┬───────────┘
+                            │ TLS/HTTP
+              ┌─────────────┼──────────────┐
+              ▼             ▼              ▼
+         ┌────────┐    ┌────────┐     ┌────────┐
+         │ PM2 PC │    │ PM2 PC │ ... │ PM2 PC │   local worker hosts
+         │  (n×   │    │  (n×   │     │  (n×   │   (one or many)
+         │  cores)│    │  cores)│     │  cores)│
+         └────────┘    └────────┘     └────────┘
+              │             │              │
+              ▼             ▼              ▼
+              Stealth Chromium → Google → target site
+```
+
+- **No internal API server.** The previous Express `ctr-api` PM2 process is gone — every endpoint is a Next.js Route Handler under `dashboard/app/api/`. The dashboard talks to itself same-origin, so no CORS, no public worker URLs, no tunneling.
+- **Workers are passive consumers of the database.** They never expose any port. To add capacity, spin up another PC and `pm2 start ecosystem.config.js`.
+- **Shared modules** (`src/services`, `src/models`, `src/config`, `src/utils`, `src/providers`) are reused by both halves: imported by the Next.js Route Handlers via `outputFileTracingRoot` and by the PM2 workers as ordinary `require(...)` calls.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Dashboard + API (Vercel)** | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS |
+| **Database** | Neon (serverless PostgreSQL) via `@neondatabase/serverless` |
+| **Auth** | JWT (`jsonwebtoken` + `bcryptjs`), `js-cookie` on the client |
+| **Workers (local PCs)** | Node.js 20+, PM2 cluster mode |
+| **Browser Automation** | Puppeteer + `puppeteer-extra-plugin-stealth` |
+| **CAPTCHA** | RektCaptcha Chrome extension (free, no API key) |
+| **Proxies** | Shoplike rotating proxy API (pluggable provider architecture) |
+
+---
+
+## Repository Layout
+
+```
+autoctr/
+├── dashboard/                    ← Vercel project root (set Root Directory = dashboard/)
+│   ├── app/
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   ├── login/                ← Next.js pages
+│   │   ├── register/
+│   │   ├── dashboard/
+│   │   └── api/                  ← Next.js Route Handlers (was Express)
+│   │       ├── health/route.ts
+│   │       ├── auth/{login,register,me}/route.ts
+│   │       ├── campaigns/route.ts
+│   │       ├── campaigns/[id]/route.ts
+│   │       ├── campaigns/[id]/{activate,pause,restart,progress,visits}/route.ts
+│   │       └── analytics/overview/route.ts
+│   ├── components/
+│   ├── lib/
+│   │   ├── api.ts                ← axios, same-origin baseURL
+│   │   ├── auth.ts
+│   │   └── server-auth.ts        ← Bearer JWT verification helper for routes
+│   ├── next.config.ts            ← outputFileTracingRoot widens tracing to repo root
+│   ├── vercel.json
+│   └── .env.example
+├── src/                          ← shared backend (used by Vercel + workers)
+│   ├── config/index.js
+│   ├── models/                   ← db.js, userModel, campaignModel, trafficDetailModel, migrate.js
+│   ├── services/                 ← authService, campaignService, analyticsService,
+│   │                               trafficDistributionService, workerService,
+│   │                               campaignCompletionService, puppeteerService,
+│   │                               proxyService, captchaService
+│   ├── providers/shoplikeProxy.js
+│   ├── utils/                    ← scheduler, humanBehavior, deviceProfiles, proxyParser
+│   ├── workers/trafficWorker.js  ← PM2 entry point
+│   └── migrations/*.sql
+├── extensions/rektcaptcha/       ← unpacked Chrome extension (worker hosts only)
+├── ecosystem.config.js           ← PM2 config — workers only (no ctr-api)
+├── package.json                  ← worker-side deps + scripts
+└── .env.example                  ← worker-side .env template
+```
+
+> The Vercel deployment uses `dashboard/` as its **Root Directory**. Next.js's
+> `outputFileTracingRoot` is widened to the repository root so Route Handlers
+> can `require('../../src/services/...')` and Vercel still bundles `src/` into
+> the serverless function image.
+
+---
+
+## Environment Variables
+
+There are **two completely separate** env surfaces. Do not mix them.
+
+### A) Vercel (dashboard project)
+
+Set these in the Vercel project's **Environment Variables** UI (or `vercel env`).
+
+| Var | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Neon connection string (same DB the workers use) |
+| `JWT_SECRET` | yes | Signing secret for user JWTs |
+| `APP_TIMEZONE` | no | IANA tz for analytics bucketing (default `Asia/Dubai`) |
+| `NEXT_PUBLIC_API_URL` | no | Override only; leave blank for same-origin (recommended) |
+
+> **Do not set `TZ`.** Vercel reserves `TZ` and forces it to `UTC` inside
+> serverless functions. We use `APP_TIMEZONE` for application-level
+> wall-clock logic so both halves stay consistent regardless of OS clock.
+
+A template lives at [dashboard/.env.example](dashboard/.env.example).
+
+### B) Local worker host (`.env` at repo root)
+
+| Var | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Same Neon URL the Vercel project uses |
+| `JWT_SECRET` | yes | Required by `src/config` at import; workers don't sign tokens |
+| `SHOPLIKE_API_KEYS` | yes | Comma-separated rotating-proxy keys |
+| `REKTCAPTCHA_PATH` | no | Default `./extensions/rektcaptcha` |
+| `APP_TIMEZONE` | no | Default `Asia/Dubai` |
+| `WORKER_CONCURRENCY` | no | Default = host CPU core count |
+
+A template lives at [.env.example](.env.example).
+
+---
+
+## Setup
+
+### Database
+
+Run migrations once against your Neon database (idempotent):
+
+```bash
+npm install            # installs worker + shared deps
+npm run db:migrate
+```
+
+Migrations run from any host that can reach Neon — typically a worker PC.
+
+### Dashboard on Vercel
+
+1. Push this repo to GitHub.
+2. Import the repo into Vercel.
+3. **Project Settings → Build & Development → Root Directory:** `dashboard`.
+4. **Settings → Environment Variables:** add the vars from section A above.
+5. Trigger a deploy. Vercel will run `next build` from `dashboard/`; the widened `outputFileTracingRoot` ensures `src/` is bundled into the function image.
+
+The dashboard is reachable at your Vercel URL. The API lives under the same origin at `/api/*`.
+
+### Worker host (local PC)
+
+On every PC that should execute traffic:
+
+```bash
+# 1. Install Node 20+ and PM2 globally
+npm install -g pm2
+
+# 2. Clone repo and install root deps
+git clone <repo-url>
+cd autoctr
+npm install
+
+# 3. Copy & fill .env (see section B above)
+cp .env.example .env       # then edit
+
+# 4. Unpack RektCaptcha extension into ./extensions/rektcaptcha/
+#    (one-time; required because workers run headed Chromium)
+
+# 5. Start workers
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup                # follow the printed command to persist across reboots
+```
+
+The number of PM2 instances of `ctr-worker` defaults to the host's CPU core count. Override with `WORKER_CONCURRENCY` in `.env`.
+
+To add capacity, repeat steps 2–5 on another PC. All workers compete for due visits via Postgres `FOR UPDATE SKIP LOCKED` — duplicate processing is impossible.
+
+---
+
+## Running Locally (dev)
+
+```bash
+# Terminal 1 — dashboard + API on http://localhost:3001
+npm run dashboard
+
+# Terminal 2 — one worker (no PM2)
+npm run worker
+```
+
+The dev dashboard reads `DATABASE_URL` from `dashboard/.env.local` (create one based on `dashboard/.env.example`). Leave `NEXT_PUBLIC_API_URL` unset so the dashboard hits its own `/api/*` routes.
+
+---
+
+## PM2 Worker Reference
+
+| Action | Command |
+|---|---|
+| Start workers | `pm2 start ecosystem.config.js` |
+| Stop workers | `pm2 stop ctr-worker` |
+| Restart workers | `pm2 restart ctr-worker` |
+| Reload (zero-downtime) | `pm2 reload ctr-worker` |
+| View processes | `pm2 status` |
+| Live monitor | `pm2 monit` |
+| Stream logs | `pm2 logs ctr-worker` |
+| Tail error log | `pm2 logs ctr-worker --err --lines 50` |
+| Save process list | `pm2 save` |
+| Register startup service | `pm2 startup` |
+
+---
+
+## API Reference
+
+Base URL: your Vercel deployment URL (e.g. `https://autoctr.vercel.app`). All campaign routes require `Authorization: Bearer <token>`.
+
+### Auth
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | `{ email, password }` | Register an account |
+| `POST` | `/api/auth/login` | `{ email, password }` | Login, returns `{ user, token }` |
+| `GET` | `/api/auth/me` | — | Current user (requires Bearer token) |
+
+### Campaigns
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/campaigns` | List your campaigns |
+| `POST` | `/api/campaigns` | Create a campaign |
+| `GET` | `/api/campaigns/:id` | Get a single campaign |
+| `DELETE` | `/api/campaigns/:id` | Delete (not while running) |
+| `POST` | `/api/campaigns/:id/activate` | Start a pending campaign |
+| `POST` | `/api/campaigns/:id/pause` | Pause a running campaign |
+| `POST` | `/api/campaigns/:id/restart` | Restart a paused or completed campaign |
+| `GET` | `/api/campaigns/:id/progress` | Live progress counts |
+| `GET` | `/api/campaigns/:id/visits` | Paginated visit detail (`status`, `type`, `device`, `sort`, `order`, `limit`, `offset`) |
+
+### Analytics
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/analytics/overview` | Aggregated dashboard analytics |
+
+### Create Campaign — Request Body
+
+```json
+{
+  "website": "https://example.com",
+  "keyword": "buy widgets online",
+  "campaign_duration_days": 30,
+  "initial_daily_visits": 100,
+  "daily_increase_pct": 10,
+  "ctr": 5,
+  "mobile_desktop_ratio": 60,
+  "min_dwell_seconds": 30,
+  "max_dwell_seconds": 120
+}
+```
+
+`required_visits` is computed server-side as
+`SUM(round(initial_daily_visits × (1 + daily_increase_pct/100)^d))` for `d = 0 … duration−1`. Hard cap: 1,000,000 total visits per campaign.
+
+---
+
+## Campaign Lifecycle
+
+```
+[created]
+    ↓
+ pending  ── activate ──►  running  ── pause ──►  paused
+                              │                       │
+                          (all visits             restart
+                           terminal)                  │
+                              ▼                       │
+                          completed  ◄────────────────┘
+                              │
+                           restart
+```
+
+- **Pause** — marks all `pending` and `running` visit rows as `failed` (`error_message='Campaign paused'`), then sets the campaign to `paused`.
+- **Restart** — deletes all existing `traffic_details`, regenerates a fresh schedule, sets campaign to `running`.
+- **Delete** — allowed for any non-`running` campaign.
+
+---
+
+## Worker Architecture
+
+### Concurrency model — 1 process, 1 job
+
+`ctr-worker` runs in PM2 cluster mode. The instance count equals `WORKER_CONCURRENCY` (defaults to `os.cpus().length`). Each worker processes exactly one visit at a time, so total in-flight impressions per host = its instance count. Excess due rows wait in the database with `status='pending'`.
+
+This bounded parallelism is intentional — both to avoid CPU/RAM saturation and to keep CTR realistic. Bursting hundreds of impressions in parallel from one IP/machine is a strong robotic signal.
+
+### Polling loop
+
+```
+Every 5 seconds:
+  1. Atomically claim 1 pending+due visit WHERE campaign.status='running'
+     via UPDATE ... RETURNING wrapping SELECT ... FOR UPDATE SKIP LOCKED
+  2. Acquire a rotating proxy from the cooldown-aware key pool
+  3. Launch stealth Chromium → Google → keyword search → (click target) → dwell
+  4. Mark visit → 'completed' or 'failed'
+  5. Check if campaign is now fully complete
+```
+
+`FOR UPDATE SKIP LOCKED` ensures no two workers (on the same or different machines) ever process the same visit.
+
+**Graceful shutdown:** on `SIGTERM` the worker stops accepting batches and waits up to 30s for the in-flight job to finish. PM2's `kill_timeout` is set to 35s to honour this.
+
+---
+
+## Proxy Integration
+
+Proxies are assigned at **execution time**, never at campaign creation. Providers are tried in order via `src/services/proxyService.js`. Currently integrated:
+
+- **Shoplike** (`src/providers/shoplikeProxy.js`)
+
+### Cooldown-aware key pool
+
+Each Shoplike API key is one rotating IP slot, gated server-side by a ~60s rotation window. Workers share an in-process pool that hands out a key whose window has elapsed and waits otherwise. The pool is per worker process; cross-worker coordination is provided by Shoplike's server-side rotation gate.
+
+```env
+SHOPLIKE_API_KEYS=key1,key2,key3,...
+```
+
+More keys = more parallel distinct IPs available within any 60s window.
+
+---
+
+## CAPTCHA Handling
+
+AutoCTR uses the **RektCaptcha** Chrome extension (no API key required).
+
+1. Unpack the extension to `./extensions/rektcaptcha/` on every worker host.
+2. Set `REKTCAPTCHA_PATH=./extensions/rektcaptcha` in `.env` (this is also the default).
+
+The extension is loaded into each Puppeteer browser instance via `--load-extension`. CAPTCHA checks occur on first load of `google.com` and after submitting the keyword search.
+
+Workers always run **headed** (RektCaptcha requires a real Chromium UI), so PM2 must be launched from a session with an attached display.
+
+---
+
+## Smart Scheduling
+
+Visits are not distributed at uniform intervals — that looks robotic. A weighted random scheduler concentrates traffic toward peak hours.
+
+- **Default peak hours:** 9, 13, 18 (interpreted in `APP_TIMEZONE`, default `Asia/Dubai`)
+- Peak windows are 3× more likely than off-peak slots
+- Minimum 30s gap between consecutive visits
+- Multi-day campaigns get their own 24h window per day, starting at `NOW() + d*24h`
+
+All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so the scheduler works correctly regardless of the Node process's `TZ` (which Vercel forces to UTC).
+
+---
+
+## Security Notes
+
+- Passwords hashed with **bcrypt** (12 rounds for register; 10 for legacy compatibility paths)
+- JWTs expire after 7 days, stored in a `sameSite=strict` cookie on the dashboard
+- Every API route verifies the Bearer token + campaign ownership server-side
+- Running campaigns cannot be deleted — pause first
+- Workers expose no network ports
+
+---
+
+## Troubleshooting
+
+**`DATABASE_URL` / `JWT_SECRET` missing on workers**
+→ Ensure `.env` exists at the repo root. PM2 child processes only see the env keys explicitly forwarded by `ecosystem.config.js` (`SHARED_ENV`); add new vars there if you introduce them.
+
+**`DATABASE_URL` / `JWT_SECRET` missing on Vercel**
+→ Set them in Project Settings → Environment Variables for the right environment (Production / Preview / Development) and redeploy.
+
+**Vercel build fails with `Cannot find module '../../src/services/...'`**
+→ `next.config.ts` must include `outputFileTracingRoot` pointing to the repo root and `outputFileTracingIncludes['/api/**/*'] = ['../src/**/*.js']`. Verify the file looks like the version in this repo.
+
+**PM2 worker stuck `errored`**
+→ `pm2 logs ctr-worker --err --lines 50`. Common causes: empty `SHOPLIKE_API_KEYS`, missing `.env`, or no display attached (Puppeteer is headed).
+
+**Visits never run despite campaign `running`**
+→ Confirm at least one worker host is reachable to Neon and PM2 shows `online`. Check `pm2 logs ctr-worker` for proxy/captcha failures. Run `npm run db:migrate` on the worker host if migrations are stale.
+
+**Dashboard returns 401 on every call**
+→ The browser cookie is missing or expired. Log in again. If your Vercel deployment URL changed, clear cookies for the old domain.
+
+**Visits stuck in `running` after a worker crash**
+→ Stale `running` rows do block completion (the completion service waits for both `pending` and `running` to drain). Clean up manually via SQL or restart-then-pause-then-restart.
+
+**CAPTCHA extension not loading**
+→ Verify `./extensions/rektcaptcha/manifest.json` exists on the worker host. The `REKTCAPTCHA_PATH` is relative to the project root.
