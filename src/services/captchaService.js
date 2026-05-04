@@ -37,6 +37,8 @@ async function isCaptchaPresent(page) {
 
 async function waitForCaptchaSolved(page) {
   const deadline = Date.now() + CAPTCHA_SOLVE_TIMEOUT_MS;
+  const startedAt = Date.now();
+  let pollCount = 0;
 
   while (Date.now() < deadline) {
     // After RektCaptcha clicks "Verify", Google auto-submits the sorry-form,
@@ -52,6 +54,38 @@ async function waitForCaptchaSolved(page) {
 
     const stillPresent = await isCaptchaPresent(page);
     if (!stillPresent) return true;
+
+    // Every ~10 s emit a diagnostic showing where in the solve flow we are.
+    // bframeVisible=true means the extension opened the image challenge.
+    // bframeVisible=false with anchorPresent=true means extension hasn't
+    // clicked the checkbox yet (injection or auto-open failure).
+    if (pollCount % 7 === 0) {
+      const elapsed = Math.round((Date.now() - startedAt) / 1000);
+      const diag = await safeEvaluate(page, () => {
+        const iframes = Array.from(document.querySelectorAll('iframe'));
+        const bframe = iframes.find(f => /bframe/.test(f.src));
+        const anchor = iframes.find(f => /anchor/.test(f.src));
+        const token = document.getElementById('g-recaptcha-response');
+        return {
+          tokenLen: token ? (token.value || '').length : 0,
+          bframeVisible: bframe
+            ? getComputedStyle(bframe).visibility === 'visible'
+            : false,
+          anchorPresent: !!anchor,
+          recaptchaIframes: iframes.filter(f => /recaptcha/.test(f.src)).length,
+        };
+      }, null);
+      if (diag) {
+        console.log(
+          `[captcha] pid=${process.pid} poll T+${elapsed}s` +
+          ` — token=${diag.tokenLen}` +
+          `, bframeVisible=${diag.bframeVisible}` +
+          `, anchorPresent=${diag.anchorPresent}` +
+          `, recaptchaIframes=${diag.recaptchaIframes}`
+        );
+      }
+    }
+    pollCount++;
 
     await sleep(POLL_INTERVAL_MS);
   }

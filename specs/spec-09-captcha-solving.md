@@ -45,6 +45,22 @@ Add to `.env.example`:
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
 ```
 
+### Reinstalling (if extension stops solving)
+
+If the extension loads but fails to select image tiles, the model files may be stale or corrupted. Reinstall a fresh copy without modifying extension code:
+
+```bash
+node scripts/reinstall-captcha-extension.js
+```
+
+The script downloads the latest CRX from the Chrome Web Store, removes the old `extensions/rektcaptcha/` directory, and extracts the fresh copy. After it reports `SUCCESS`, restart workers:
+
+```bash
+pm2 restart all
+```
+
+If CAPTCHAs still fail after reinstalling, check the poll-cycle logs emitted by `captchaService.js` every ~10 s — they show whether the challenge image opened (`bframeVisible=true`) but tiles weren't selected (model issue) vs. whether the checkbox was never clicked (injection issue).
+
 ---
 
 ## Key Constraint: Browser Always Runs Headed
