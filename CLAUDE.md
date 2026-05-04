@@ -73,4 +73,8 @@ spec-01 (setup) → spec-02 (DB schema) → spec-03 (auth)
 - Never assign proxy IP at campaign creation time — assign at execution time only
 - Status values: `pending` → `running` → `completed` (never skip states)
 - **Concurrency:** 1 PM2 worker = 1 traffic instance at a time. Total parallel impressions per host = `WORKER_CONCURRENCY` (defaults to `os.cpus().length`). Excess due rows queue in `traffic_details.status='pending'`.
+- **Maintenance scripts** live in `scripts/` and are wired through npm scripts in the root `package.json`:
+  - `npm run reset:failed -- <campaignId>` — flip every `failed` row of one campaign back to `pending` (clears `error_message`, `started_at`, `completed_at`, `ip`, `actual_dwell_seconds`); reactivates the parent `traffic_summaries` row to `running` if it was already auto-completed. `<campaignId>` is the UUID from `/dashboard/campaigns/<campaignId>`.
+  - `npm run reset:failed` (no arg) — same operation applied globally across every campaign.
+  - `node scripts/reinstall-captcha-extension.js` — reinstall the RektCaptcha extension from the Chrome Web Store.
 - **SERP-click invariant (core product rule):** A "click" job MUST be executed by clicking the target's organic anchor on the Google SERP via a real mouse event (`page.mouse.click(x, y)` on `a[ping^="/url"]`), so Google's `/url?...` redirect fires and the visit is recorded by Google as a genuine SERP click with `Referer: google.com`. Never use `page.goto(targetUrl)` — or any other direct navigation, link-copy, or `window.open` of the target — as the click action. The only direct navigation allowed in a job is `page.goto('https://www.google.com')` to start the search. Impression jobs MUST search Google and dwell on the SERP without ever clicking the target domain.

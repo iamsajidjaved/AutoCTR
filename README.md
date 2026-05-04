@@ -249,6 +249,16 @@ The dev dashboard reads `DATABASE_URL` from `dashboard/.env.local` (create one b
 | Save process list | `pm2 save` |
 | Register startup service | `pm2 startup` |
 
+### Maintenance scripts
+
+| Action | Command |
+|---|---|
+| Reset failed visits → pending (one campaign) | `npm run reset:failed -- <campaignId>` |
+| Reset failed visits → pending (every campaign) | `npm run reset:failed` |
+| Reinstall RektCaptcha extension | `node scripts/reinstall-captcha-extension.js` |
+
+`<campaignId>` is the UUID shown in the dashboard URL — `/dashboard/campaigns/<campaignId>`. The reset script flips every `failed` row in scope back to `pending`, clears `error_message` / `started_at` / `completed_at` / `ip` / `actual_dwell_seconds`, and — if the parent campaign was auto-marked `completed` because no pending/running rows remained — flips it back to `running` so the next worker poll picks the rows up. Already-running campaigns are left untouched.
+
 ---
 
 ## API Reference
@@ -427,6 +437,9 @@ All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so t
 
 **Visits stuck in `running` after a worker crash**
 → Stale `running` rows do block completion (the completion service waits for both `pending` and `running` to drain). Clean up manually via SQL or restart-then-pause-then-restart.
+
+**A campaign has piled up `failed` visits and you want to retry them**
+→ Run `npm run reset:failed -- <campaignId>` (UUID from `/dashboard/campaigns/<campaignId>`). This flips every `failed` row for that campaign back to `pending`, clears the per-row error/timestamp fields, and reactivates the campaign if it was already auto-completed. Omit `<campaignId>` to apply globally to every campaign in the database.
 
 **CAPTCHA extension not loading**
 → Verify `./extensions/rektcaptcha/manifest.json` exists on the worker host. The `REKTCAPTCHA_PATH` is relative to the project root.
