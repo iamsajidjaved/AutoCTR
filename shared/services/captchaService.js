@@ -35,10 +35,42 @@ async function isCaptchaPresent(page) {
   );
 }
 
+// Manually click the reCAPTCHA "I'm not a robot" checkbox in the anchor
+// iframe. Used as a fallback when RektCaptcha's recaptcha-visibility.js
+// auto-open fails to fire (the in-extension trigger depends on chrome.runtime
+// messaging through an MV3 service worker that intermittently goes idle and
+// loses tab-scoped state). Clicking via puppeteer's frame API bypasses that
+// path entirely and just opens the bframe so the extension can solve it.
+async function forceClickAnchorCheckbox(page) {
+  try {
+    const anchorFrame = page
+      .frames()
+      .find(f => /\/recaptcha\/(api2|enterprise)\/anchor/.test(f.url()));
+    if (!anchorFrame) return false;
+
+    // If already checked or in the process of being verified, skip.
+    const alreadyChecked = await anchorFrame.evaluate(() => {
+      const cb = document.querySelector('#recaptcha-anchor');
+      return !!cb && cb.getAttribute('aria-checked') === 'true';
+    }).catch(() => false);
+    if (alreadyChecked) return false;
+
+    const handle = await anchorFrame.$('#recaptcha-anchor');
+    if (!handle) return false;
+    await handle.click({ delay: 60 + Math.floor(Math.random() * 80) }).catch(() => {});
+    await handle.dispose().catch(() => {});
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function waitForCaptchaSolved(page) {
   const deadline = Date.now() + CAPTCHA_SOLVE_TIMEOUT_MS;
   const startedAt = Date.now();
   let pollCount = 0;
+  let manualClickAttempts = 0;
+  const MAX_MANUAL_CLICKS = 3;
 
   while (Date.now() < deadline) {
     // After RektCaptcha clicks "Verify", Google auto-submits the sorry-form,
@@ -54,6 +86,36 @@ async function waitForCaptchaSolved(page) {
 
     const stillPresent = await isCaptchaPresent(page);
     if (!stillPresent) return true;
+
+    // Fallback: if RektCaptcha hasn't opened the image-puzzle iframe within
+    // ~5 s of the captcha appearing, click the "I'm not a robot" checkbox
+    // ourselves. The extension's auto-open occasionally fails to fire (its
+    // recaptcha-visibility.js depends on chrome.runtime messaging through an
+    // MV3 service worker whose tab-scoped state can race against initial
+    // page load on heavily-loaded multi-instance hosts). Once we open the
+    // bframe, the extension's auto_solve still does the actual image solving.
+    const elapsedSinceStart = Date.now() - startedAt;
+    if (
+      elapsedSinceStart > 5000 &&
+      manualClickAttempts < MAX_MANUAL_CLICKS &&
+      // Only click again every ~10 s of stalling, never spam.
+      manualClickAttempts <= Math.floor(elapsedSinceStart / 10000)
+    ) {
+      const bframeOpen = await safeEvaluate(page, () => {
+        const f = Array.from(document.querySelectorAll('iframe'))
+          .find(i => /bframe/.test(i.src));
+        return !!f && getComputedStyle(f).visibility === 'visible';
+      }, false);
+      if (!bframeOpen) {
+        const clicked = await forceClickAnchorCheckbox(page);
+        if (clicked) {
+          manualClickAttempts++;
+          console.log(
+            `[captcha] pid=${process.pid} manually clicked anchor checkbox (attempt ${manualClickAttempts}) — extension auto-open did not fire`
+          );
+        }
+      }
+    }
 
     // Every ~10 s emit a diagnostic showing where in the solve flow we are.
     // bframeVisible=true means the extension opened the image challenge.

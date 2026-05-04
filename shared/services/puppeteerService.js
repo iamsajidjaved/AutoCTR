@@ -344,7 +344,7 @@ async function findResultCoords(page, targetUrl, targetDomain) {
   return null;
 }
 
-async function runJob(job) {
+async function runJob(job, ctx) {
   const profile = deviceProfiles.getProfile(job.device);
 
   let proxy;
@@ -418,6 +418,11 @@ async function runJob(job) {
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null, // use the OS window-size we just set
   });
+  // Expose the browser to executeJob() so a hard timeout can still close it,
+  // preventing the previous Chromium from holding its temp profile lock and
+  // breaking every subsequent launch with "browser is already running for
+  // ...puppeteer_dev_profile-XXX".
+  if (ctx) ctx.browser = browser;
 
   // Confirm Chromium actually loaded the RektCaptcha extension. On some
   // machines Chromium silently refuses the extension (corrupted manifest,
@@ -710,13 +715,22 @@ async function runJob(job) {
 
 async function executeJob(job) {
   const timeoutMs = (job.max_dwell_seconds * 1.5 + 60) * 1000;
+  const ctx = { browser: null };
   try {
     return await Promise.race([
-      runJob(job),
+      runJob(job, ctx),
       makeTimeout(timeoutMs),
     ]);
   } catch (err) {
     return { success: false, error: err.message, actualDwellSeconds: null };
+  } finally {
+    // If the timeout fired before runJob's own finally ran, runJob is still
+    // executing somewhere with an open Chromium. Force-close it here so the
+    // temp user-data-dir's SingletonLock is released and the next job can
+    // launch a fresh browser.
+    if (ctx.browser) {
+      await ctx.browser.close().catch(() => {});
+    }
   }
 }
 
