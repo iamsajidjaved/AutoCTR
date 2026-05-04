@@ -6,7 +6,7 @@ Node.js + Neon (PostgreSQL) backend that automates Google CTR simulation via PM2
 ## Tech Stack
 - **Backend:** Node.js + Express.js
 - **Database:** Neon (PostgreSQL via `@neondatabase/serverless`)
-- **Workers:** PM2 cluster mode
+- **Workers:** PM2 cluster mode — instance count = CPU cores (override via `WORKER_CONCURRENCY`); each worker runs exactly one traffic job at a time, so total in-flight impressions = CPU core count
 - **Automation:** Puppeteer + `puppeteer-extra-plugin-stealth`
 - **Captcha:** RektCaptcha Chrome extension (free, no API key — extension ID: `bbdhfoclddncoaomddgkaaphcnddbpdh`)
 - **Proxies:** Rotating proxy API (assign per-visit)
@@ -67,3 +67,4 @@ spec-01 (setup) → spec-02 (DB schema) → spec-03 (auth)
 - Config/env access only through `src/config/index.js`
 - Never assign proxy IP at campaign creation time — assign at execution time only
 - Status values: `pending` → `running` → `completed` (never skip states)
+- **Concurrency:** 1 PM2 worker = 1 traffic instance at a time. Total parallel impressions = `WORKER_CONCURRENCY` (defaults to `os.cpus().length`). Excess due rows queue in `traffic_details.status='pending'`.

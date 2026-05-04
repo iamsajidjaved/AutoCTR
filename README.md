@@ -168,12 +168,19 @@ TZ=Asia/Dubai
 # can clearly see each run as it executes. Silent no-op on macOS/Linux.
 
 # Shoplike rotating proxy — comma-separated list of API keys
-# Each key = one independent rotating IP slot
-# More keys = more simultaneous unique IPs across concurrent workers
+# Each key = one independent rotating IP slot.
+# Keys are pooled across all PM2 workers via a cooldown-aware in-process pool;
+# they are no longer pinned 1:1 to workers. More keys = more distinct IPs
+# available before the per-key 60s rotation window must elapse.
 SHOPLIKE_API_KEYS=key1,key2,key3,...
 
 # CAPTCHA extension path (relative to project root)
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
+
+# Total in-flight traffic jobs across all PM2 workers. Each worker runs exactly
+# one job at a time, so this is also the PM2 ctr-worker instance count.
+# Defaults to os.cpus().length when unset.
+WORKER_CONCURRENCY=
 ```
 
 > The legacy variable name `DB_URL` is still accepted as a fallback for back-compat,
