@@ -12,13 +12,54 @@ const config = require('../config');
 
 puppeteer.use(StealthPlugin());
 
-const extensionPath = path.resolve(config.REKTCAPTCHA_PATH || './extensions/rektcaptcha');
+// Resolve the extension path against the project root rather than the
+// process cwd. PM2 sets cwd correctly via ecosystem.config.js, but if the
+// worker is ever launched directly (or PM2 is started from a different
+// directory on a misconfigured machine) a relative `./extensions/...`
+// silently resolves to a non-existent path, the extension is never loaded,
+// and CAPTCHAs go unsolved with no obvious cause.
+const PROJECT_ROOT = path.resolve(__dirname, '../..');
+const rawExtPath = config.REKTCAPTCHA_PATH || './extensions/rektcaptcha';
+const extensionPath = path.isAbsolute(rawExtPath)
+  ? rawExtPath
+  : path.resolve(PROJECT_ROOT, rawExtPath);
 const extensionExists = fs.existsSync(extensionPath);
-if (!extensionExists) {
-  console.warn(`[captcha] RektCaptcha extension not found at ${extensionPath}. CAPTCHAs will not be solved.`);
-} else {
-  console.log(`[captcha] RektCaptcha extension will be loaded from ${extensionPath}`);
+
+// Required files for RektCaptcha to actually solve a CAPTCHA. Antivirus on
+// some Windows machines (notably Defender + corporate AVs) silently
+// quarantines `.ort` ONNX model files or the `dist/` folder containing the
+// onnxruntime WASM, which leaves the extension installed but inert. We
+// surface this loudly at startup so the broken machine reveals itself.
+const REQUIRED_EXTENSION_FILES = [
+  'manifest.json',
+  'background.js',
+  'recaptcha.js',
+  'recaptcha-visibility.js',
+  'rules.json',
+  'models/yolov5-seg.ort',
+  'models/mask-yolov5-seg.ort',
+  'models/nms-yolov5-det.ort',
+];
+
+function diagnoseExtension() {
+  if (!extensionExists) {
+    console.error(`[captcha] FATAL: RektCaptcha extension folder not found at ${extensionPath}. CAPTCHAs will NOT be solved. Check REKTCAPTCHA_PATH env var and that the folder was deployed to this machine.`);
+    return;
+  }
+  const missing = REQUIRED_EXTENSION_FILES.filter(f => !fs.existsSync(path.join(extensionPath, f)));
+  if (missing.length > 0) {
+    console.error(`[captcha] RektCaptcha is installed at ${extensionPath} but the following required files are MISSING: ${missing.join(', ')}. Likely cause: antivirus quarantined them. Restore from the source repo and add an AV exclusion for the extensions folder.`);
+    return;
+  }
+  // Count model files for parity reporting between machines.
+  let modelCount = 0;
+  try {
+    modelCount = fs.readdirSync(path.join(extensionPath, 'models')).filter(f => f.endsWith('.ort')).length;
+  } catch (_) { /* already reported above */ }
+  console.log(`[captcha] RektCaptcha OK at ${extensionPath} (models: ${modelCount} .ort files)`);
 }
+
+diagnoseExtension();
 
 // Bringing N Chromium windows to the foreground simultaneously causes them
 // to fight for focus on Windows and can destabilise multi-instance runs.
@@ -352,6 +393,35 @@ async function runJob(job) {
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null, // use the OS window-size we just set
   });
+
+  // Confirm Chromium actually loaded the RektCaptcha extension. On some
+  // machines Chromium silently refuses the extension (corrupted manifest,
+  // OS-level Group Policy blocking unpacked extensions, AV blocking the
+  // service-worker file, etc.). Without this check the only symptom is a
+  // CAPTCHA timeout 2 minutes later with no actionable diagnostic.
+  if (extensionExists) {
+    try {
+      // The extension's MV3 service worker takes a beat to register.
+      const swDeadline = Date.now() + 5000;
+      let swTarget = null;
+      while (Date.now() < swDeadline) {
+        swTarget = browser.targets().find(t =>
+          t.type() === 'service_worker' && t.url().startsWith('chrome-extension://')
+        );
+        if (swTarget) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      if (!swTarget) {
+        const allTargets = browser.targets().map(t => `${t.type()}:${t.url().slice(0, 80)}`);
+        console.error(`[captcha] pid=${process.pid} RektCaptcha service worker NOT found 5s after browser launch. Extension is installed on disk but Chromium did not load it. Targets seen: ${JSON.stringify(allTargets)}. Likely causes: corporate Group Policy blocking unpacked extensions, AV blocking background.js, or Chromium version mismatch.`);
+      } else {
+        const extId = new URL(swTarget.url()).hostname;
+        console.log(`[captcha] pid=${process.pid} RektCaptcha service worker registered (extension id: ${extId})`);
+      }
+    } catch (err) {
+      console.warn(`[captcha] pid=${process.pid} extension verification failed: ${err.message}`);
+    }
+  }
 
   // Pop the Chromium window above all other windows so the operator can watch
   // the run live. No-op on non-Windows; never throws. Disabled by default in

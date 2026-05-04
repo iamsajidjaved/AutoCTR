@@ -82,7 +82,35 @@ async function handleCaptcha(page) {
 
   const solved = await waitForCaptchaSolved(page);
   if (!solved) {
-    console.warn(`[captcha] pid=${process.pid} TIMEOUT after ${Date.now() - startedAt}ms at ${page.url()} — extension did not solve. Likely causes: SW not ready, model load failure, image fetch blocked by proxy, or unsupported challenge type.`);
+    // Build a focused diagnostic so we can tell, on the broken machine,
+    // whether the extension's content scripts even reached the recaptcha
+    // iframes. RektCaptcha exposes window.__rekt_loaded once recaptcha.js
+    // runs (added by recaptcha-visibility.js / recaptcha.js); checking it
+    // inside every recaptcha frame tells us if injection failed entirely
+    // (extension not loaded, or host_permissions denied) vs if injection
+    // worked but the model couldn't run (AV blocking ONNX WASM, etc.).
+    let frameDiag = 'unavailable';
+    try {
+      const frames = page.frames().filter(f => /recaptcha/i.test(f.url()));
+      const probes = await Promise.all(frames.map(async f => {
+        const url = f.url();
+        let injected = null;
+        try {
+          injected = await f.evaluate(() => ({
+            hasAnchorCheckbox: !!document.querySelector('#recaptcha-anchor'),
+            hasChallengeImages: !!document.querySelector('.rc-imageselect'),
+            // Any script the extension injected leaves traces on window.
+            extKeys: Object.keys(window).filter(k => /rekt|captcha/i.test(k)),
+          }));
+        } catch (e) {
+          injected = { error: e.message };
+        }
+        return { url: url.slice(0, 120), injected };
+      }));
+      frameDiag = JSON.stringify(probes);
+    } catch (_) { /* best-effort */ }
+
+    console.warn(`[captcha] pid=${process.pid} TIMEOUT after ${Date.now() - startedAt}ms at ${page.url()} — extension did not solve. Frame diagnostic: ${frameDiag}. Likely causes: extension not loaded by Chromium (check launch logs for "service worker registered"), AV blocking ONNX model load, or unsupported challenge type.`);
     return { solved: false, reason: 'timeout' };
   }
 
