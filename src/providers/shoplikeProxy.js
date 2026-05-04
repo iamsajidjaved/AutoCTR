@@ -4,70 +4,126 @@ const config = require('../config');
 
 const BASE = 'https://proxy.shoplike.vn/Api';
 
-// Key-selection strategy
-// ----------------------
-// Each Shoplike API key = one independent rotating IP slot. A key can only be
-// rotated every `nextChange` seconds (~60s by default), so two callers hitting
-// the same key in quick succession both share whatever IP is currently bound
-// to that key — they cannot both get a "new" proxy.
+// Cooldown-aware key pool
+// -----------------------
+// Each Shoplike API key is one rotating IP slot, gated server-side by a ~60s
+// rotation window. Calling getNewProxy on a key inside that window returns the
+// SAME live IP it just had — Shoplike's API itself replies with `nextChange`
+// (seconds remaining) instead of rotating.
 //
-// Policy: **strict 1:1 mapping between PM2 workers and API keys**. Each PM2
-// worker is pinned to exactly one key via `NODE_APP_INSTANCE` (the unique
-// 0-based fork index PM2 cluster mode sets). The number of PM2 worker
-// instances is driven by the key count in ecosystem.config.js, so adding a key
-// to .env automatically gives you another worker, and a worker started with no
-// matching key throws immediately rather than silently sharing a key with
-// another worker.
+// Workers are no longer pinned 1:1 to keys. PM2 worker count tracks CPU cores
+// (WORKER_CONCURRENCY); keys are shared via this in-process pool. For each job
+// the pool hands out a key whose cooldown has elapsed, marks it in-use, and
+// releases it after the proxy call returns. If no key is ready, the caller
+// awaits — better to delay a job a few seconds than to reuse the same IP for
+// back-to-back impressions.
 //
-// Within a single worker, the in-process concurrency limit (MAX_CONCURRENT_JOBS)
-// allows up to 3 jobs to run at once; they intentionally share that worker's
-// single key (and therefore its current rotating IP) until the next rotation
-// window opens. This matches Shoplike's documented per-key rotation gating.
-//
-// When NODE_APP_INSTANCE is unset (running the worker directly via
-// `node src/workers/trafficWorker.js` outside PM2) we fall back to a
-// process-local round-robin counter so dev mode still works.
-let rrIndex = 0;
+// Scope is per worker process. Cross-worker coordination is not implemented;
+// Shoplike's server-side rotation gate is the ultimate source of truth, so the
+// worst cross-worker race outcome is two impressions sharing one IP within the
+// 60s window — the same behavior the legacy 1:1 pinning could exhibit when a
+// single worker ran multiple concurrent jobs.
 
-function pickKey() {
+const ROTATION_WINDOW_MS = 60_000;
+const ACQUIRE_POLL_MS = 500;
+const ACQUIRE_TIMEOUT_MS = 5 * 60_000; // hard ceiling so a stuck pool can't hang a job forever
+
+const keyState = new Map();
+
+function ensurePool() {
   const keys = config.SHOPLIKE_API_KEYS;
   if (!keys || keys.length === 0) throw new Error('No SHOPLIKE_API_KEYS configured');
-
-  const pmInstance = process.env.NODE_APP_INSTANCE;
-  if (pmInstance !== undefined && pmInstance !== '') {
-    const idx = parseInt(pmInstance, 10);
-    if (Number.isInteger(idx) && idx >= 0) {
-      if (idx >= keys.length) {
-        // Strict 1:1 enforcement — refuse to share keys across PM2 workers.
-        throw new Error(
-          `PM2 worker instance ${idx} has no Shoplike key (only ${keys.length} key(s) configured). ` +
-          `Add another key to SHOPLIKE_API_KEYS or reduce ctr-worker instances in ecosystem.config.js.`
-        );
-      }
-      return keys[idx];
+  for (const k of keys) {
+    if (!keyState.has(k)) {
+      // lastRotatedAt = 0 means "ready immediately on first use".
+      keyState.set(k, { lastRotatedAt: 0, inUse: false });
     }
   }
+  return keys;
+}
 
-  const key = keys[rrIndex % keys.length];
-  rrIndex = (rrIndex + 1) % keys.length;
-  return key;
+function readyAt(state) {
+  return state.lastRotatedAt + ROTATION_WINDOW_MS;
+}
+
+function pickReadyKey(keys, now) {
+  let soonestBusyOrCooling = Infinity;
+  for (const k of keys) {
+    const s = keyState.get(k);
+    if (s.inUse) continue;
+    if (now >= readyAt(s)) return { key: k };
+    if (readyAt(s) < soonestBusyOrCooling) soonestBusyOrCooling = readyAt(s);
+  }
+  return { key: null, retryAt: soonestBusyOrCooling };
+}
+
+async function acquireKey() {
+  const keys = ensurePool();
+  const deadline = Date.now() + ACQUIRE_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const now = Date.now();
+    const pick = pickReadyKey(keys, now);
+    if (pick.key) {
+      keyState.get(pick.key).inUse = true;
+      return pick.key;
+    }
+    // Wait for either a release or the next cooldown to elapse.
+    const wait = Math.min(
+      ACQUIRE_POLL_MS,
+      Number.isFinite(pick.retryAt) ? Math.max(50, pick.retryAt - now) : ACQUIRE_POLL_MS
+    );
+    await sleep(wait);
+  }
+  throw new Error('Shoplike key pool: timed out waiting for an available key');
+}
+
+function releaseKey(key, { didRotate, nextChangeSeconds } = {}) {
+  const s = keyState.get(key);
+  if (!s) return;
+  s.inUse = false;
+  if (didRotate) {
+    s.lastRotatedAt = Date.now();
+  } else if (typeof nextChangeSeconds === 'number' && nextChangeSeconds > 0) {
+    // Shoplike says we can rotate again in `nextChangeSeconds`. Anchor our
+    // local cooldown to match that view.
+    s.lastRotatedAt = Date.now() - (ROTATION_WINDOW_MS - nextChangeSeconds * 1000);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function getNewProxy() {
-  const key = pickKey();
-
-  const body = await httpGetJson(`${BASE}/getNewProxy?access_token=${key}`);
+  const key = await acquireKey();
+  let body;
+  try {
+    body = await httpGetJson(`${BASE}/getNewProxy?access_token=${key}`);
+  } catch (err) {
+    releaseKey(key, { didRotate: false });
+    throw err;
+  }
 
   if (body.status === 'success') {
+    releaseKey(key, { didRotate: true });
     return parseData(body.data);
   }
 
   // "Must wait N seconds" — rotation window hasn't elapsed; the key already has
   // a live IP, so reuse it via getCurrentProxy.
   if (body.nextChange !== undefined) {
-    return getCurrentProxy(key);
+    try {
+      const proxy = await getCurrentProxy(key);
+      releaseKey(key, { didRotate: false, nextChangeSeconds: Number(body.nextChange) });
+      return proxy;
+    } catch (err) {
+      releaseKey(key, { didRotate: false, nextChangeSeconds: Number(body.nextChange) });
+      throw err;
+    }
   }
 
+  releaseKey(key, { didRotate: false });
   throw new Error(`ShopLike getNewProxy error: ${body.mess || JSON.stringify(body)}`);
 }
 

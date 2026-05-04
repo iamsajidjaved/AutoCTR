@@ -2,12 +2,13 @@ const trafficDetailModel = require('../models/trafficDetailModel');
 const puppeteerService = require('./puppeteerService');
 const campaignCompletionService = require('./campaignCompletionService');
 
-// Each worker claims at most this many rows per poll. The model already marks
-// them 'running' atomically, so there is no benefit to over-fetching beyond the
-// number we can actually run in parallel — surplus rows would just sit blocked
-// on the in-process concurrency limit while preventing other PM2 workers from
-// picking them up.
-const MAX_CONCURRENT_JOBS = 3;
+// Strict invariant: 1 PM2 process == 1 in-flight traffic instance at a time.
+// Each worker claims exactly one row per poll cycle and `await`s its execution
+// before claiming again. Total system concurrency therefore equals the PM2
+// instance count, which is sized to os.cpus().length (overridable via
+// WORKER_CONCURRENCY). This bounds parallel impressions to the CPU core count
+// to keep CTR realistic and prevent host saturation.
+const MAX_CONCURRENT_JOBS = 1;
 const BATCH_SIZE = MAX_CONCURRENT_JOBS;
 
 // Throttle the "0 jobs" diagnostic so logs don't drown when the queue is idle.

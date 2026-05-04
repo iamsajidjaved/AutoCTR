@@ -1,8 +1,10 @@
-// Pin one PM2 worker per Shoplike API key. Each key is an independent rotating
-// IP slot, and the provider in src/providers/shoplikeProxy.js refuses to start
-// if a worker's NODE_APP_INSTANCE index has no corresponding key. Adding more
-// keys to .env automatically scales the worker pool one-to-one on next start.
+// PM2 worker count is sized to host CPU cores (or WORKER_CONCURRENCY env
+// override). Each PM2 worker claims exactly one traffic job at a time, so
+// total in-flight impressions == instance count. Shoplike API keys are pooled
+// inside each worker (see src/providers/shoplikeProxy.js), no longer pinned
+// 1:1 to PM2 instances.
 const path = require('path');
+const os = require('os');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const SHOPLIKE_KEY_COUNT = (process.env.SHOPLIKE_API_KEYS || '')
@@ -15,6 +17,11 @@ if (SHOPLIKE_KEY_COUNT === 0) {
   throw new Error('SHOPLIKE_API_KEYS must contain at least one key — workers cannot start.');
 }
 
+const parsedConcurrency = parseInt(process.env.WORKER_CONCURRENCY, 10);
+const WORKER_CONCURRENCY = Number.isFinite(parsedConcurrency) && parsedConcurrency > 0
+  ? parsedConcurrency
+  : os.cpus().length;
+
 // Forward selected env vars from the launching shell into PM2-managed children.
 // PM2 daemon-spawned children only inherit the env block defined here, so we
 // must explicitly propagate everything they need at runtime.
@@ -26,6 +33,7 @@ const SHARED_ENV = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3001',
   TZ: process.env.TZ || 'Asia/Dubai',
   PORT: process.env.PORT || '3000',
+  WORKER_CONCURRENCY: String(WORKER_CONCURRENCY),
 };
 
 const COMMON = {
@@ -53,7 +61,7 @@ module.exports = {
       ...COMMON,
       name: 'ctr-worker',
       script: './src/workers/trafficWorker.js',
-      instances: SHOPLIKE_KEY_COUNT,
+      instances: WORKER_CONCURRENCY,
       exec_mode: 'cluster',
       // Worker has a 30s in-flight drain on SIGTERM (see trafficWorker.js).
       // PM2's default 1.6s kill_timeout would terminate jobs mid-execution.

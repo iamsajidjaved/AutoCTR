@@ -7,7 +7,8 @@ const POLL_INTERVAL_MS = 5000;
 // Puppeteer always runs headed (headless: false) — required by the
 // RektCaptcha extension.
 console.log(
-  `[worker-${process.pid}] starting | NODE_ENV=${config.NODE_ENV} | headless=false`
+  `[worker-${process.pid}] starting | NODE_ENV=${config.NODE_ENV} | ` +
+  `headless=false | worker_concurrency=${config.WORKER_CONCURRENCY} | jobs_per_worker=1`
 );
 
 function sleep(ms) {

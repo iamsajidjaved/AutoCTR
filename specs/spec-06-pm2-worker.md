@@ -33,15 +33,22 @@ The row is locked **and** flipped to `status='running'` (with `started_at = NOW(
 inside one statement, so two PM2 workers polling on the same tick can never
 claim the same row.
 
+**Concurrency invariant:** 1 PM2 process == 1 in-flight traffic instance at a
+time. PM2 spawns one worker per CPU core (overridable via `WORKER_CONCURRENCY`),
+so total system concurrency equals `os.cpus().length`. Excess due rows wait in
+the `traffic_details` table (status `pending`) and are drained as workers free
+up — this is the queue.
+
 ```
 POLL_INTERVAL_MS    = 5000        (every 5 seconds)
-MAX_CONCURRENT_JOBS = 3            (per worker instance)
+MAX_CONCURRENT_JOBS = 1            (per worker instance — strict)
 BATCH_SIZE          = MAX_CONCURRENT_JOBS
+WORKER_CONCURRENCY  = os.cpus().length  (default; env-overridable)
 ```
 
-BATCH_SIZE is intentionally pinned to MAX_CONCURRENT_JOBS — over-fetching would
-just hold extra rows in `running` while they wait for a free in-process slot,
-starving the other PM2 workers.
+Each worker claims exactly one row per poll, awaits its execution, then claims
+again. With CPU-core-many workers this naturally bounds total impressions to
+the core count without any in-process semaphore.
 
 ### `src/workers/trafficWorker.js`
 ```js
@@ -122,4 +129,5 @@ Use a simple logger that prefixes each line with `[worker-${process.pid}]`. Log:
 - [ ] Claimed jobs move to `running` immediately (no double-claiming by parallel workers)
 - [ ] Jobs eventually move to `completed` (via stub)
 - [ ] SIGTERM causes graceful shutdown — in-flight jobs complete before exit
-- [ ] `pm2 start ecosystem.config.js --only ctr-worker` runs multiple instances without conflict
+- [ ] `pm2 start ecosystem.config.js --only ctr-worker` runs `WORKER_CONCURRENCY` instances (defaults to `os.cpus().length`) without conflict
+- [ ] Total in-flight `traffic_details` rows in `running` status never exceed `WORKER_CONCURRENCY`, even when hundreds of rows are due
