@@ -128,8 +128,8 @@ async executeJob(job)
 
   1. Pick device profile (mobile or desktop based on job.device) via weighted random
   2. Build browser launch args (proxy added in spec-08) — see "Super-Stealth Browser Launch" below
-  3. Launch browser (headless: false — required; extensions used in spec-09 don't work in standard headless)
-  3a. If `HEADLESS=false` on Windows, bring the freshly-launched Chromium window to the foreground via a brief PowerShell `SetForegroundWindow` / `ShowWindow` call (best-effort; silent no-op on non-Windows or any failure). Lets the operator clearly see each visible run.
+  3. Launch browser with `headless: false` — always. Extensions used in spec-09 don't work in standard headless, and the project policy is to never run headless.
+  3a. On Windows, bring the freshly-launched Chromium window to the foreground via a brief PowerShell `SetForegroundWindow` / `ShowWindow` call (best-effort; silent no-op on non-Windows or any failure). Lets the operator clearly see each visible run.
   4. Apply full identity emulation BEFORE first navigation:
        - `page.setUserAgent(ua, uaMetadata)` (UA + Sec-CH-UA / navigator.userAgentData)
        - `page.emulate({ viewport, userAgent })` (DPR, touch, mobile media queries)
@@ -318,8 +318,7 @@ const launchArgs = [
   '--use-mock-keychain',
   `--lang=${profile.languages[0]}`,                          // ICU + Accept-Language
   `--window-size=${profile.viewport.width},${profile.viewport.height}`,
-  // When HEADLESS=false, also push `--window-position=0,0` so the
-  // foreground window lands at a predictable on-screen spot.
+  '--window-position=0,0',  // predictable on-screen spot for the foreground window
 ];
 puppeteer.launch({
   headless: false,

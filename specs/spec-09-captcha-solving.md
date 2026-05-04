@@ -47,24 +47,21 @@ REKTCAPTCHA_PATH=./extensions/rektcaptcha
 
 ---
 
-## Key Constraint: Extensions Require Non-Standard Headless
+## Key Constraint: Browser Always Runs Headed
 
-Chrome extensions do **not** work in standard headless mode (`headless: true`).
+Chrome extensions do **not** work in standard headless mode, and the project
+mandates `headless: false` unconditionally — there is no headless code path.
 
-Use one of these two approaches:
+On Windows: the launched Chromium window is visible. The puppeteer service
+brings it to the foreground at startup so the operator can watch each run.
 
-**Option A — `headless: false` (simple, for local/dev)**
-The browser window is visible. Fine for development and small-scale use.
-
-**Option B — Virtual display on Linux servers**
-Install Xvfb and wrap the process:
+On Linux servers: wrap the worker in a virtual display so the headed browser
+has somewhere to render:
 ```bash
 Xvfb :99 -screen 0 1366x768x24 &
 DISPLAY=:99 node src/workers/trafficWorker.js
 ```
 No code change needed — Puppeteer uses `DISPLAY` env var automatically.
-
-On Windows servers: run headed (`headless: false`) with a minimized window; no extra setup needed.
 
 ---
 

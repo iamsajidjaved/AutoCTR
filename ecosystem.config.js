@@ -26,7 +26,6 @@ const SHARED_ENV = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3001',
   TZ: process.env.TZ || 'Asia/Dubai',
   PORT: process.env.PORT || '3000',
-  HEADLESS: process.env.HEADLESS || '',
 };
 
 const COMMON = {

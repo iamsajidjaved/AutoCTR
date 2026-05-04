@@ -1,6 +1,6 @@
 # AutoCTR — Google CTR Simulation Tool
 
-AutoCTR is a full-stack tool that automates Google CTR (Click-Through Rate) simulation. Users create traffic campaigns specifying a target website and keyword; the system then distributes visits across a 24-hour window and executes them via headless Chromium browsers using rotating proxies and stealth techniques to mimic real human behaviour.
+AutoCTR is a full-stack tool that automates Google CTR (Click-Through Rate) simulation. Users create traffic campaigns specifying a target website and keyword; the system then distributes visits across a 24-hour window and executes them via real Chromium browser instances (always headed, required by the RektCaptcha extension) using rotating proxies and stealth techniques to mimic real human behaviour.
 
 ---
 
@@ -162,13 +162,10 @@ NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 # IANA timezone for the Node process and Postgres session (default: Asia/Dubai)
 TZ=Asia/Dubai
-# Puppeteer headless mode. Defaults to true when NODE_ENV=production, false otherwise.
-# PM2 background workers MUST run headless — set HEADLESS=true if you start PM2
-# with NODE_ENV=development. Use HEADLESS=false locally to watch the browser.
-# When HEADLESS=false on Windows, the launched Chromium window is brought to
-# the foreground at startup (best-effort via PowerShell) so you can clearly
-# see each run as it executes. Silent no-op on macOS/Linux.
-HEADLESS=
+# Puppeteer always runs headed (headless: false) — required by the
+# RektCaptcha Chrome extension. On Windows the launched Chromium window is
+# brought to the foreground at startup (best-effort via PowerShell) so you
+# can clearly see each run as it executes. Silent no-op on macOS/Linux.
 
 # Shoplike rotating proxy — comma-separated list of API keys
 # Each key = one independent rotating IP slot
@@ -335,7 +332,6 @@ Ensure `.env` in the project root has these values set:
 DATABASE_URL=...        ← Neon connection string
 JWT_SECRET=...          ← Long random string
 TZ=Asia/Dubai           ← IANA timezone (process + DB session)
-HEADLESS=true           ← Required when running workers under PM2 (default in production)
 SHOPLIKE_API_KEYS=...   ← Comma-separated proxy API keys
 REKTCAPTCHA_PATH=...    ← Path to unpacked RektCaptcha extension
 ```
@@ -665,7 +661,7 @@ Visits within peak windows are 3× more likely to be scheduled than off-peak slo
 → Ensure `.env` exists in the project root and is correctly formatted. The legacy name `DB_URL` is also accepted, but `DATABASE_URL` is preferred. When running under PM2, the daemon child only sees the env keys explicitly forwarded by `ecosystem.config.js` — if you add a new env var, propagate it through the `SHARED_ENV` block there too.
 
 **PM2 process stuck `errored` / restart-looping**
-→ Tail the per-process error log: `pm2 logs ctr-worker --err --lines 50` (or `tail -n 100 logs/ctr-worker-err.log`). The most common causes are: (1) `.env` missing in the cwd PM2 was launched from — `ecosystem.config.js` now pins `cwd: __dirname` and loads `.env` from the project root to prevent this; (2) `HEADLESS=false` while running under the PM2 daemon — Chromium can't attach to a foreground display, set `HEADLESS=true` or rely on the production default; (3) `SHOPLIKE_API_KEYS` empty — every worker throws on startup.
+→ Tail the per-process error log: `pm2 logs ctr-worker --err --lines 50` (or `tail -n 100 logs/ctr-worker-err.log`). The most common causes are: (1) `.env` missing in the cwd PM2 was launched from — `ecosystem.config.js` now pins `cwd: __dirname` and loads `.env` from the project root to prevent this; (2) `SHOPLIKE_API_KEYS` empty — every worker throws on startup. Note: Puppeteer always runs headed, so PM2 must be launched from a session with an attached display (or via `pm2-runtime` inside a desktop session) so Chromium can render its window.
 
 **Worker killed mid-job on restart**
 → `ctr-worker` has `kill_timeout: 35000` so PM2 waits up to 35s for the in-flight 30s SIGTERM drain. Don't reduce this without also lowering the worker's drain budget.

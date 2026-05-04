@@ -10,15 +10,6 @@ process.env.APP_TIMEZONE = TIMEZONE;
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// HEADLESS flag — Puppeteer cannot attach to a foreground display when PM2 is
-// running as a detached daemon, so we default to headless in production. Dev
-// mode keeps the visible browser for debugging. Override with HEADLESS=true|false.
-function parseHeadless() {
-  const raw = process.env.HEADLESS;
-  if (raw === undefined || raw === '') return NODE_ENV === 'production';
-  return /^(1|true|yes|on)$/i.test(raw);
-}
-
 const config = Object.freeze({
   // Prefer DATABASE_URL (Neon / 12-factor convention); fall back to legacy DB_URL.
   DATABASE_URL: process.env.DATABASE_URL || process.env.DB_URL,
@@ -27,7 +18,6 @@ const config = Object.freeze({
   NODE_ENV,
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3001',
   TIMEZONE,
-  HEADLESS: parseHeadless(),
   // Comma-separated list of Shoplike API keys for round-robin rotation
   SHOPLIKE_API_KEYS: (process.env.SHOPLIKE_API_KEYS || '').split(',').map(k => k.trim()).filter(Boolean),
   REKTCAPTCHA_PATH: process.env.REKTCAPTCHA_PATH || './extensions/rektcaptcha',

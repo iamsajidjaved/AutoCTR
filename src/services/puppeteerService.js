@@ -31,7 +31,7 @@ function makeTimeout(ms) {
 // Bring the freshly-launched Chromium window above all other windows so the
 // operator can clearly see the run in progress. Windows-only, best-effort:
 // any failure is swallowed (the worst outcome is the window stays where
-// Chromium placed it). Skipped entirely in headless mode or on non-Windows.
+// Chromium placed it). Skipped on non-Windows.
 //
 // We call out to PowerShell because Node has no built-in Win32 binding for
 // SetForegroundWindow / ShowWindow. The script imports the two APIs via
@@ -40,7 +40,6 @@ function makeTimeout(ms) {
 // MainWindowHandle — that's the window the user actually sees. If none is
 // found yet (slow launch) we retry once after 600 ms.
 function bringBrowserToFront(browser) {
-  if (config.HEADLESS) return Promise.resolve();
   if (process.platform !== 'win32') return Promise.resolve();
 
   const proc = browser.process();
@@ -322,11 +321,9 @@ async function runJob(job) {
     `--lang=${primaryLang}`,
     `--window-size=${profile.viewport.width},${profile.viewport.height}`,
   ];
-  if (!config.HEADLESS) {
-    // Pin the visible window to a predictable spot so the foreground call
-    // below surfaces it where the operator expects.
-    launchArgs.push('--window-position=0,0');
-  }
+  // Pin the visible window to a predictable spot so the foreground call
+  // below surfaces it where the operator expects.
+  launchArgs.push('--window-position=0,0');
   if (extensionExists) {
     launchArgs.push(
       `--disable-extensions-except=${extensionPath}`,
@@ -335,14 +332,14 @@ async function runJob(job) {
   }
 
   const browser = await puppeteer.launch({
-    headless: config.HEADLESS ? 'new' : false,
+    headless: false,
     args: launchArgs,
     ignoreDefaultArgs: ['--enable-automation'],
     defaultViewport: null, // use the OS window-size we just set
   });
 
   // Pop the Chromium window above all other windows so the operator can watch
-  // the run live. No-op when headless or on non-Windows; never throws.
+  // the run live. No-op on non-Windows; never throws.
   await bringBrowserToFront(browser);
 
   const page = await browser.newPage();

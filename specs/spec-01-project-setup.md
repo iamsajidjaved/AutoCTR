@@ -58,7 +58,6 @@ Required env vars:
 - `PORT` — defaults to 3000
 - `NODE_ENV` — development / production
 - `TZ` — IANA timezone for both the Node process and the Postgres session timezone (defaults to `Asia/Dubai`). The config module sets `process.env.TZ` early so all `new Date()` / `NOW()` arithmetic happens in Dubai local time.
-- `HEADLESS` — optional Puppeteer override. Defaults to `true` when `NODE_ENV=production`, `false` otherwise.
 - `PROXY_API_KEY` — for proxy rotation (can be empty for now)
 - `REKTCAPTCHA_PATH` — path to unpacked RektCaptcha extension directory (can be empty for now)
 
@@ -75,7 +74,7 @@ Throw a startup error if `DATABASE_URL` or `JWT_SECRET` is missing.
 - Global error handler (log + `{ error: message }` JSON)
 
 ### `ecosystem.config.js`
-PM2 process definitions. The real implementation (see [`ecosystem.config.js`](../ecosystem.config.js)) loads `.env` from the project root, pins `cwd: __dirname`, propagates required env vars (`DATABASE_URL`, `JWT_SECRET`, `SHOPLIKE_API_KEYS`, `HEADLESS`, etc.) into PM2-spawned children via a `SHARED_ENV` block, writes per-process logs to `./logs/`, and sets `kill_timeout: 35000` on `ctr-worker` so the in-flight 30s SIGTERM drain isn't truncated by PM2's default 1.6s.
+PM2 process definitions. The real implementation (see [`ecosystem.config.js`](../ecosystem.config.js)) loads `.env` from the project root, pins `cwd: __dirname`, propagates required env vars (`DATABASE_URL`, `JWT_SECRET`, `SHOPLIKE_API_KEYS`, etc.) into PM2-spawned children via a `SHARED_ENV` block, writes per-process logs to `./logs/`, and sets `kill_timeout: 35000` on `ctr-worker` so the in-flight 30s SIGTERM drain isn't truncated by PM2's default 1.6s.
 
 Skeleton:
 ```js
@@ -109,7 +108,6 @@ PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 TZ=Asia/Dubai
-HEADLESS=
 SHOPLIKE_API_KEYS=
 REKTCAPTCHA_PATH=./extensions/rektcaptcha
 ```
