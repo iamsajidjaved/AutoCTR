@@ -37,6 +37,14 @@ const nextConfig: NextConfig = {
       ...(config.resolve.alias || {}),
       "@server": sharedSrc,
     };
+    // The shared backend code lives at repoRoot/src/, but its `require(...)`
+    // calls (e.g. require('bcryptjs')) resolve node_modules by walking up
+    // from src/, which never reaches dashboard/node_modules. Add it
+    // explicitly so Vercel's `npm install` (run inside dashboard/) is enough.
+    config.resolve.modules = [
+      path.join(__dirname, "node_modules"),
+      ...(config.resolve.modules || ["node_modules"]),
+    ];
     return config;
   },
 };
