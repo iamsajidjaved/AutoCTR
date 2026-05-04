@@ -1,11 +1,13 @@
 {
-  "name": "autoctr",
+  "name": "autoctr-worker",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "AutoCTR — local PM2 traffic workers (the Vercel-hosted dashboard lives in /dashboard)",
+  "main": "src/workers/trafficWorker.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
+    "worker": "node src/workers/trafficWorker.js",
+    "worker:pm2": "pm2 start ecosystem.config.js",
+    "worker:logs": "pm2 logs ctr-worker",
+    "worker:stop": "pm2 stop ecosystem.config.js && pm2 delete ecosystem.config.js",
     "db:migrate": "node src/models/migrate.js",
     "dashboard": "cd dashboard && npm run dev",
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -16,12 +18,8 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
-    "morgan": "^1.10.1",
     "puppeteer": "^24.42.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",

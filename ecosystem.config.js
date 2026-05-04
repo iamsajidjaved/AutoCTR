@@ -1,8 +1,17 @@
-// PM2 worker count is sized to host CPU cores (or WORKER_CONCURRENCY env
-// override). Each PM2 worker claims exactly one traffic job at a time, so
-// total in-flight impressions == instance count. Shoplike API keys are pooled
-// inside each worker (see src/providers/shoplikeProxy.js), no longer pinned
-// 1:1 to PM2 instances.
+// PM2 config — LOCAL WORKER MACHINES ONLY.
+// The dashboard + API run on Vercel (see /dashboard); this file orchestrates
+// only the headless traffic execution workers. There is no `ctr-api` process
+// anymore — the Express server has been migrated to Next.js Route Handlers
+// under /dashboard/app/api.
+//
+// Each PM2 worker claims exactly one traffic job at a time, so total in-flight
+// impressions == instance count. Override the default (= host CPU cores) with
+// WORKER_CONCURRENCY for shared boxes or load-shaping experiments.
+//
+// IMPORTANT: Do NOT set the `TZ` env var here — Vercel reserves it. We use
+// APP_TIMEZONE for app-level wall-clock logic instead. The Node process clock
+// stays at the OS default; all bucketing/scheduling is timezone-aware via
+// Intl APIs (see src/utils/scheduler.js).
 const path = require('path');
 const os = require('os');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
@@ -27,12 +36,13 @@ const WORKER_CONCURRENCY = Number.isFinite(parsedConcurrency) && parsedConcurren
 // must explicitly propagate everything they need at runtime.
 const SHARED_ENV = {
   DATABASE_URL: process.env.DATABASE_URL || process.env.DB_URL || '',
+  // JWT_SECRET is needed because shared modules under src/ (loaded via
+  // src/config) still validate it at import time. Workers never sign or
+  // verify tokens themselves.
   JWT_SECRET: process.env.JWT_SECRET || '',
   SHOPLIKE_API_KEYS: process.env.SHOPLIKE_API_KEYS || '',
   REKTCAPTCHA_PATH: process.env.REKTCAPTCHA_PATH || './extensions/rektcaptcha',
-  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3001',
-  TZ: process.env.TZ || 'Asia/Dubai',
-  PORT: process.env.PORT || '3000',
+  APP_TIMEZONE: process.env.APP_TIMEZONE || 'Asia/Dubai',
   WORKER_CONCURRENCY: String(WORKER_CONCURRENCY),
 };
 
@@ -47,16 +57,6 @@ const COMMON = {
 
 module.exports = {
   apps: [
-    {
-      ...COMMON,
-      name: 'ctr-api',
-      script: './src/server.js',
-      instances: 1,
-      exec_mode: 'fork',
-      out_file: './logs/ctr-api-out.log',
-      error_file: './logs/ctr-api-err.log',
-      env: { ...SHARED_ENV, NODE_ENV: 'production' },
-    },
     {
       ...COMMON,
       name: 'ctr-worker',

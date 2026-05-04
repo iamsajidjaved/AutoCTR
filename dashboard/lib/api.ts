@@ -1,8 +1,12 @@
 import axios from 'axios';
 import Cookies from 'js-cookie';
 
+// Same-origin: in production the dashboard and the API live on the same
+// Vercel deployment, so an empty baseURL means requests go to /api/* on the
+// current host. NEXT_PUBLIC_API_URL is honored only as an explicit override
+// (e.g. when pointing the dev dashboard at a remote API).
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || '',
 });
 
 api.interceptors.request.use((config) => {

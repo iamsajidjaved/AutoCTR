@@ -1,13 +1,20 @@
 const path = require('path');
 const os = require('os');
-// Always load .env from the project root so PM2 (which may spawn children with
-// a different cwd) still picks it up.
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
-// Force the Node process to operate in Dubai time (Asia/Dubai, UTC+4, no DST).
-// Set as early as possible — before any module reads `new Date()` for the first time.
+// Load .env from the project root for *local* runtime (workers, dev scripts).
+// On Vercel, env vars are injected by the platform and `.env` does not exist —
+// `dotenv` silently no-ops in that case, which is the desired behavior.
+//
+// IMPORTANT: Do NOT set or rely on the `TZ` environment variable. Vercel
+// reserves `TZ` and forces it to `UTC` for serverless functions. We use
+// `APP_TIMEZONE` exclusively for application-level wall-clock logic.
+try {
+  require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+} catch {
+  // dotenv not installed in this environment (e.g. trimmed Vercel bundle) — ignore.
+}
+
 const TIMEZONE = process.env.APP_TIMEZONE || 'Asia/Dubai';
-process.env.APP_TIMEZONE = TIMEZONE;
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
@@ -27,14 +34,12 @@ const config = Object.freeze({
   // Prefer DATABASE_URL (Neon / 12-factor convention); fall back to legacy DB_URL.
   DATABASE_URL: process.env.DATABASE_URL || process.env.DB_URL,
   JWT_SECRET: process.env.JWT_SECRET,
-  PORT: process.env.PORT || 3000,
   NODE_ENV,
-  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3001',
   TIMEZONE,
   WORKER_CONCURRENCY,
-  // Shared pool of Shoplike API keys. Keys are no longer pinned 1:1 to workers;
-  // a cooldown-aware pool in src/providers/shoplikeProxy.js claims a key per
-  // job and respects the ~60s rotation window.
+  // Worker-only fields. Validated lazily by worker-side modules
+  // (src/providers/shoplikeProxy.js, src/services/puppeteerService.js) so the
+  // Vercel-deployed dashboard does not need these vars set.
   SHOPLIKE_API_KEYS,
   REKTCAPTCHA_PATH: process.env.REKTCAPTCHA_PATH || './extensions/rektcaptcha',
 });
@@ -44,9 +49,6 @@ if (!config.DATABASE_URL) {
 }
 if (!config.JWT_SECRET) {
   throw new Error('Missing required env var: JWT_SECRET');
-}
-if (config.SHOPLIKE_API_KEYS.length === 0) {
-  throw new Error('SHOPLIKE_API_KEYS must contain at least one key.');
 }
 
 module.exports = config;
