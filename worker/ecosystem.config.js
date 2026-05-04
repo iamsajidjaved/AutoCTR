@@ -11,7 +11,7 @@
 // IMPORTANT: Do NOT set the `TZ` env var here — Vercel reserves it. We use
 // APP_TIMEZONE for app-level wall-clock logic instead. The Node process clock
 // stays at the OS default; all bucketing/scheduling is timezone-aware via
-// Intl APIs (see src/utils/scheduler.js).
+// Intl APIs (see ../shared/utils/scheduler.js).
 const path = require('path');
 const os = require('os');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
@@ -36,8 +36,8 @@ const WORKER_CONCURRENCY = Number.isFinite(parsedConcurrency) && parsedConcurren
 // must explicitly propagate everything they need at runtime.
 const SHARED_ENV = {
   DATABASE_URL: process.env.DATABASE_URL || process.env.DB_URL || '',
-  // JWT_SECRET is needed because shared modules under src/ (loaded via
-  // src/config) still validate it at import time. Workers never sign or
+  // JWT_SECRET is needed because shared modules under ../shared/ (loaded via
+  // ../shared/config) still validate it at import time. Workers never sign or
   // verify tokens themselves.
   JWT_SECRET: process.env.JWT_SECRET || '',
   SHOPLIKE_API_KEYS: process.env.SHOPLIKE_API_KEYS || '',
@@ -60,7 +60,7 @@ module.exports = {
     {
       ...COMMON,
       name: 'ctr-worker',
-      script: './src/workers/trafficWorker.js',
+      script: '../shared/workers/trafficWorker.js',
       instances: WORKER_CONCURRENCY,
       exec_mode: 'cluster',
       // Worker has a 30s in-flight drain on SIGTERM (see trafficWorker.js).

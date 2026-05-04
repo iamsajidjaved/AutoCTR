@@ -49,7 +49,7 @@ npm install --save-dev nodemon
 
 ## Implementation Details
 
-### `src/config/index.js`
+### `shared/config/index.js`
 Export a frozen config object reading from `process.env`. Every other file imports from here — never `process.env` directly elsewhere.
 
 Required env vars:
@@ -73,8 +73,8 @@ Throw a startup error if `DATABASE_URL` or `JWT_SECRET` is missing.
 - 404 handler
 - Global error handler (log + `{ error: message }` JSON)
 
-### `ecosystem.config.js`
-PM2 process definitions. The real implementation (see [`ecosystem.config.js`](../ecosystem.config.js)) loads `.env` from the project root, pins `cwd: __dirname`, propagates required env vars (`DATABASE_URL`, `JWT_SECRET`, `SHOPLIKE_API_KEYS`, etc.) into PM2-spawned children via a `SHARED_ENV` block, writes per-process logs to `./logs/`, and sets `kill_timeout: 35000` on `ctr-worker` so the in-flight 30s SIGTERM drain isn't truncated by PM2's default 1.6s.
+### `worker/ecosystem.config.js`
+PM2 process definitions. The real implementation (see [`worker/ecosystem.config.js`](../ecosystem.config.js)) loads `.env` from the project root, pins `cwd: __dirname`, propagates required env vars (`DATABASE_URL`, `JWT_SECRET`, `SHOPLIKE_API_KEYS`, etc.) into PM2-spawned children via a `SHARED_ENV` block, writes per-process logs to `./logs/`, and sets `kill_timeout: 35000` on `ctr-worker` so the in-flight 30s SIGTERM drain isn't truncated by PM2's default 1.6s.
 
 Skeleton:
 ```js
@@ -89,7 +89,7 @@ module.exports = {
     },
     {
       name: 'ctr-worker',
-      script: './src/workers/trafficWorker.js',
+      script: './shared/workers/trafficWorker.js',
       instances: SHOPLIKE_KEY_COUNT, // one per Shoplike API key
       exec_mode: 'cluster',
       kill_timeout: 35000,
@@ -109,7 +109,7 @@ NODE_ENV=development
 FRONTEND_URL=http://localhost:3001
 TZ=Asia/Dubai
 SHOPLIKE_API_KEYS=
-REKTCAPTCHA_PATH=./extensions/rektcaptcha
+REKTCAPTCHA_PATH=./worker/extensions/rektcaptcha
 ```
 
 ### `.gitignore`

@@ -24,7 +24,7 @@ src/
 
 ## Implementation Details
 
-### `src/utils/scheduler.js`
+### `shared/utils/scheduler.js`
 
 #### Core Function
 ```js

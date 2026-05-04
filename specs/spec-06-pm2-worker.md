@@ -50,7 +50,7 @@ Each worker claims exactly one row per poll, awaits its execution, then claims
 again. With CPU-core-many workers this naturally bounds total impressions to
 the core count without any in-process semaphore.
 
-### `src/workers/trafficWorker.js`
+### `shared/workers/trafficWorker.js`
 ```js
 // Entry point for PM2
 const workerService = require('../services/workerService');
@@ -66,7 +66,7 @@ process.on('SIGTERM', () => { /* graceful shutdown flag */ });
 run();
 ```
 
-### `src/services/workerService.js`
+### `shared/services/workerService.js`
 
 ```js
 async processBatch()
@@ -89,12 +89,12 @@ async processBatch()
      final visit threw still transitions to 'completed'.
 ```
 
-### Proxy Stub (`src/services/proxyService.js`)
+### Proxy Stub (`shared/services/proxyService.js`)
 ```js
 async getProxy() { return '0.0.0.0'; }  // real impl in spec-08
 ```
 
-### Puppeteer Stub (`src/services/puppeteerService.js`)
+### Puppeteer Stub (`shared/services/puppeteerService.js`)
 ```js
 async executeJob(job) {
   // real impl in spec-07
@@ -103,7 +103,7 @@ async executeJob(job) {
 }
 ```
 
-### Campaign Completion Stub (`src/services/campaignCompletionService.js`)
+### Campaign Completion Stub (`shared/services/campaignCompletionService.js`)
 ```js
 async checkAndComplete(summaryId) {}  // real impl in spec-11
 ```
@@ -124,7 +124,7 @@ Use a simple logger that prefixes each line with `[worker-${process.pid}]`. Log:
 ---
 
 ## Acceptance Criteria
-- [ ] `node src/workers/trafficWorker.js` runs without crashing
+- [ ] `node shared/workers/trafficWorker.js` runs without crashing
 - [ ] Worker picks up pending+due `traffic_details` rows every 5 seconds
 - [ ] Claimed jobs move to `running` immediately (no double-claiming by parallel workers)
 - [ ] Jobs eventually move to `completed` (via stub)

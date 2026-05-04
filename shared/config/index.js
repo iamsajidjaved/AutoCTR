@@ -1,15 +1,15 @@
 const path = require('path');
 const os = require('os');
 
-// Load .env from the project root for *local* runtime (workers, dev scripts).
-// On Vercel, env vars are injected by the platform and `.env` does not exist —
+// Load .env from the worker project for *local* runtime (workers, dev scripts).
+// On Vercel, env vars are injected by the platform and no `.env` file exists —
 // `dotenv` silently no-ops in that case, which is the desired behavior.
 //
 // IMPORTANT: Do NOT set or rely on the `TZ` environment variable. Vercel
 // reserves `TZ` and forces it to `UTC` for serverless functions. We use
 // `APP_TIMEZONE` exclusively for application-level wall-clock logic.
 try {
-  require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+  require('dotenv').config({ path: path.resolve(__dirname, '../../worker/.env') });
 } catch {
   // dotenv not installed in this environment (e.g. trimmed Vercel bundle) — ignore.
 }

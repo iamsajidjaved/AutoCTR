@@ -1,33 +1,22 @@
 {
-  "name": "autoctr-worker",
+  "name": "autoctr",
   "version": "1.0.0",
-  "description": "AutoCTR — local PM2 traffic workers (the Vercel-hosted dashboard lives in /dashboard)",
-  "main": "src/workers/trafficWorker.js",
+  "private": true,
+  "description": "AutoCTR — split-architecture Google CTR simulation tool. Code lives under /dashboard (Vercel), /worker (local PM2), and /shared (backend modules used by both). See README.md.",
   "scripts": {
-    "worker": "node src/workers/trafficWorker.js",
-    "worker:pm2": "pm2 start ecosystem.config.js",
-    "worker:logs": "pm2 logs ctr-worker",
-    "worker:stop": "pm2 stop ecosystem.config.js && pm2 delete ecosystem.config.js",
-    "db:migrate": "node src/models/migrate.js",
-    "reset:failed": "node scripts/reset-failed-to-pending.js",
-    "dashboard": "cd dashboard && npm run dev",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dashboard": "npm --prefix dashboard run dev",
+    "dashboard:build": "npm --prefix dashboard run build",
+    "worker": "npm --prefix worker run worker",
+    "worker:pm2": "npm --prefix worker run worker:pm2",
+    "worker:logs": "npm --prefix worker run worker:logs",
+    "worker:stop": "npm --prefix worker run worker:stop",
+    "db:migrate": "npm --prefix worker run db:migrate",
+    "reset:failed": "npm --prefix worker run reset:failed --",
+    "captcha:reinstall": "npm --prefix worker run captcha:reinstall",
+    "captcha:test": "npm --prefix worker run captcha:test",
+    "install:all": "npm --prefix dashboard install && npm --prefix worker install"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
-    "bcryptjs": "^3.0.3",
-    "dotenv": "^17.4.2",
-    "jsonwebtoken": "^9.0.3",
-    "puppeteer": "^24.42.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "uuid": "^14.0.0"
-  },
-  "devDependencies": {
-    "autoprefixer": "^10.5.0",
-    "nodemon": "^3.1.14"
-  }
+  "license": "ISC"
 }

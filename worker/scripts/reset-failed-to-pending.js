@@ -22,8 +22,8 @@
 // pending/running rows remained), it is flipped back to 'running' so the
 // PM2 workers will resume execution. Already-running campaigns are left alone.
 
-require('dotenv').config();
-const { sql, pool } = require('../src/models/db');
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
+const { sql, pool } = require('../../shared/models/db');
 
 function isUuid(v) {
   return typeof v === 'string' &&

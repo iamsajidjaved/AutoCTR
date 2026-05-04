@@ -31,14 +31,14 @@ src/
 
 ## Implementation Details
 
-### `src/models/userModel.js`
+### `shared/models/userModel.js`
 ```js
 findByEmail(email)        → user row or null
 findById(id)              → user row or null
 create({ email, passwordHash })  → new user row
 ```
 
-### `src/services/authService.js`
+### `shared/services/authService.js`
 ```js
 register({ email, password })
   → validate email format, password length >= 8

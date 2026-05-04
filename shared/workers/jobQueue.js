@@ -1,4 +1,4 @@
-// Real concurrency enforcement lives in src/services/workerService.js
+// Real concurrency enforcement lives in shared/services/workerService.js
 // (BATCH_SIZE=1 + per-poll `await`). This semaphore is retained for parity and
 // potential future use; its limit is kept in sync with the worker invariant.
 const MAX_CONCURRENT_JOBS = 1;

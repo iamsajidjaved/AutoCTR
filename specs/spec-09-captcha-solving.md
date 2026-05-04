@@ -4,7 +4,7 @@
 **Depends on:** spec-08
 **Blocks:** —
 
-> Note: All code-side work is complete. The unpacked extension at `extensions/rektcaptcha/` is a one-time manual developer step (gitignored) — without it, startup logs a warning and CAPTCHA-bearing jobs will fail with `captcha_timeout` (acceptable degraded behavior).
+> Note: All code-side work is complete. The unpacked extension at `worker/worker/extensions/rektcaptcha/` is a one-time manual developer step (gitignored) — without it, startup logs a warning and CAPTCHA-bearing jobs will fail with `captcha_timeout` (acceptable degraded behavior).
 
 ---
 
@@ -24,11 +24,11 @@ Chrome extensions require the unpacked extension files on disk. Do this once:
    - Visit the extension page in Chrome
    - In Chrome DevTools → Application → Service Workers, or use a CRX downloader tool
 2. Unpack the downloaded `.crx` file (rename to `.zip`, extract)
-3. Place the unpacked folder at: `extensions/rektcaptcha/` in the project root
+3. Place the unpacked folder at: `worker/worker/extensions/rektcaptcha/` in the project root
 4. Verify it contains `manifest.json`
 5. **Force-enable auto-solve defaults.** The extension ships with both **Auto Open** and **Auto Solve** disabled (`recaptcha_auto_open: false`, `recaptcha_auto_solve: false`) in `background.js`. Patch these defaults to `true` so freshly-launched Puppeteer profiles auto-solve CAPTCHAs without manual popup interaction:
 
-   In `extensions/rektcaptcha/background.js`, change the defaults object to:
+   In `worker/worker/extensions/rektcaptcha/background.js`, change the defaults object to:
    ```js
    const e={recaptcha_auto_open:!0,recaptcha_auto_solve:!0,recaptcha_click_delay_time:300,recaptcha_solve_delay_time:1e3};
    ```
@@ -42,7 +42,7 @@ extensions/
 Add to `.env.example`:
 ```
 # Path to unpacked RektCaptcha extension (relative to project root)
-REKTCAPTCHA_PATH=./extensions/rektcaptcha
+REKTCAPTCHA_PATH=./worker/extensions/rektcaptcha
 ```
 
 ### Reinstalling (if extension stops solving)
@@ -50,10 +50,10 @@ REKTCAPTCHA_PATH=./extensions/rektcaptcha
 If the extension loads but fails to select image tiles, the model files may be stale or corrupted. Reinstall a fresh copy without modifying extension code:
 
 ```bash
-node scripts/reinstall-captcha-extension.js
+npm run captcha:reinstall
 ```
 
-The script downloads the latest CRX from the Chrome Web Store, removes the old `extensions/rektcaptcha/` directory, and extracts the fresh copy. After it reports `SUCCESS`, restart workers:
+The script downloads the latest CRX from the Chrome Web Store, removes the old `worker/worker/extensions/rektcaptcha/` directory, and extracts the fresh copy. After it reports `SUCCESS`, restart workers:
 
 ```bash
 pm2 restart all
@@ -75,7 +75,7 @@ On Linux servers: wrap the worker in a virtual display so the headed browser
 has somewhere to render:
 ```bash
 Xvfb :99 -screen 0 1366x768x24 &
-DISPLAY=:99 node src/workers/trafficWorker.js
+DISPLAY=:99 node shared/workers/trafficWorker.js
 ```
 No code change needed — Puppeteer uses `DISPLAY` env var automatically.
 
@@ -95,7 +95,7 @@ extensions/
 
 ## Implementation Details
 
-### `src/services/captchaService.js`
+### `shared/services/captchaService.js`
 
 ```js
 const CAPTCHA_SOLVE_TIMEOUT_MS = 120_000;  // 2 minutes max
@@ -162,7 +162,7 @@ In the `executeJob` function, update the browser launch block:
 
 ```js
 const path = require('path');
-const extensionPath = path.resolve(config.REKTCAPTCHA_PATH || './extensions/rektcaptcha');
+const extensionPath = path.resolve(config.REKTCAPTCHA_PATH || './worker/extensions/rektcaptcha');
 
 const browser = await puppeteer.launch({
   headless: false,   // required for extensions to work
@@ -221,14 +221,14 @@ if (!fs.existsSync(extensionPath)) {
 ---
 
 ## Acceptance Criteria
-- [ ] `extensions/rektcaptcha/manifest.json` exists (manual setup done — pending developer)
+- [ ] `worker/worker/extensions/rektcaptcha/manifest.json` exists (manual setup done — pending developer)
 - [x] Puppeteer launches with `--load-extension` pointing to the extension directory
 - [x] `isCaptchaPresent()` correctly detects reCAPTCHA iframes on a CAPTCHA page
 - [x] When CAPTCHA is present, `waitForCaptchaSolved()` polls until token appears in `#g-recaptcha-response`
 - [x] After 2 minutes without a solution, job is marked `failed` with `error='captcha_timeout'`
 - [x] If extension directory is missing, startup logs a warning (no crash)
 - [x] Jobs with no CAPTCHA are unaffected (fast path skips all waiting)
-- [x] `extensions/rektcaptcha/background.js` defaults set both `recaptcha_auto_open` and `recaptcha_auto_solve` to `true` so the extension solves CAPTCHAs without manual popup toggling
+- [x] `worker/worker/extensions/rektcaptcha/background.js` defaults set both `recaptcha_auto_open` and `recaptcha_auto_solve` to `true` so the extension solves CAPTCHAs without manual popup toggling
 - [x] Polling and post-solve flow tolerate "Execution context was destroyed" navigations (see hardening section below)
 
 ---
@@ -244,5 +244,5 @@ After the initial implementation, jobs intermittently failed with **`Execution c
 4. **Post-solve flow in `runJob`** — after `handleCaptcha` returns solved, if a *second* CAPTCHA is now showing it is solved again; if the page settled on the homepage instead of the SERP (rare redirect path), the search is automatically re-submitted.
 
 ### Files Touched
-- `src/services/captchaService.js` — adds `safeEvaluate`, `waitForPostCaptchaSettle`; uses tolerant evaluate in polling loop.
-- `src/services/puppeteerService.js` — imports `safeEvaluate`; retries on `findResultCoords`; post-solve re-check + optional re-submit.
+- `shared/services/captchaService.js` — adds `safeEvaluate`, `waitForPostCaptchaSettle`; uses tolerant evaluate in polling loop.
+- `shared/services/puppeteerService.js` — imports `safeEvaluate`; retries on `findResultCoords`; post-solve re-check + optional re-submit.

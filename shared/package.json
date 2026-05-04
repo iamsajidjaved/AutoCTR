@@ -1,0 +1,20 @@
+{
+  "name": "autoctr-shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared backend modules used by both the Vercel dashboard (/dashboard) and the local PM2 workers (/worker). The workers run /shared/workers/trafficWorker.js as their PM2 entry point, so Node module resolution walks UP from /shared/ — that's why the runtime deps live here. The Vercel dashboard reaches the same files via the @server/* webpack alias and ships its own copy of the deps it actually imports.",
+  "main": "workers/trafficWorker.js",
+  "scripts": {
+    "noop": "echo 'shared/ has no scripts of its own'"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.4.2",
+    "jsonwebtoken": "^9.0.3",
+    "puppeteer": "^24.42.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "uuid": "^14.0.0"
+  }
+}

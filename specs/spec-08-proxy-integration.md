@@ -121,7 +121,7 @@ Available location codes: `bn`, `db`, `dn`, `hcm`, `hd`, `hd2`, `hd3`, `hn`, `hp
 
 ---
 
-### `src/providers/shoplikeProxy.js`
+### `shared/providers/shoplikeProxy.js`
 
 Strategy: **cooldown-aware shared key pool (N keys : M workers).** PM2 worker
 count is sized to host CPU cores (`WORKER_CONCURRENCY`), independent of how
@@ -180,7 +180,7 @@ async function getNewProxy() {
 }
 ```
 
-### `ecosystem.config.js`
+### `worker/ecosystem.config.js`
 
 Worker count tracks CPU cores (`WORKER_CONCURRENCY`), no longer keys:
 
@@ -193,7 +193,7 @@ module.exports = {
     { name: 'ctr-api',    script: './src/server.js', instances: 1 },
     {
       name: 'ctr-worker',
-      script: './src/workers/trafficWorker.js',
+      script: './shared/workers/trafficWorker.js',
       instances: WORKER_CONCURRENCY,    // bounded by host CPU
       exec_mode: 'cluster',
     },
@@ -203,7 +203,7 @@ module.exports = {
 
 ---
 
-## `src/services/proxyService.js`
+## `shared/services/proxyService.js`
 
 ```js
 const shoplike = require('../providers/shoplikeProxy');
@@ -229,7 +229,7 @@ module.exports = { getProxy };
 
 ---
 
-## `src/utils/proxyParser.js`
+## `shared/utils/proxyParser.js`
 
 Utility for any provider that returns a raw `host:port:user:pass` string instead of JSON.
 
@@ -311,7 +311,7 @@ Multiple keys broaden the IP pool: each worker runs one job at a time and the co
 ---
 
 ## Adding a Second Provider Later
-1. Create `src/providers/newProvider.js` exporting `{ getNewProxy() }` returning the same `{ host, port, username, password, url }` shape
+1. Create `shared/providers/newProvider.js` exporting `{ getNewProxy() }` returning the same `{ host, port, username, password, url }` shape
 2. Append it to `PROVIDERS` in `proxyService.js`
 3. Add its env var to `.env` and `.env.example`
 No changes to Puppeteer code are needed.

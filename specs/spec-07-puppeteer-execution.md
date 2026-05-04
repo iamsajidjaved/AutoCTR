@@ -49,7 +49,7 @@ src/
 
 ## Implementation Details
 
-### `src/utils/deviceProfiles.js`
+### `shared/utils/deviceProfiles.js`
 
 A device profile is a fully-coherent identity used by puppeteerService to make
 each session indistinguishable from a real device. Every field is intentional;
@@ -84,7 +84,7 @@ The desktop-vs-mobile split itself is decided by `mobile_desktop_ratio` at job
 distribution time (spec-05). The pick inside each pool uses `weight`-based
 random selection so the most common real-world combos are picked most often.
 
-### `src/utils/humanBehavior.js`
+### `shared/utils/humanBehavior.js`
 ```js
 randomDelay(minMs, maxMs)
   → sleep a random duration within [minMs, maxMs]
@@ -128,7 +128,7 @@ waitForNetworkIdle(page)
   → wait until no more than 0 in-flight network requests for 500ms (max wait 10s)
 ```
 
-### `src/services/puppeteerService.js`
+### `shared/services/puppeteerService.js`
 
 ```js
 const puppeteer = require('puppeteer-extra');

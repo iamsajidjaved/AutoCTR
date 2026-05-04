@@ -28,17 +28,17 @@ src/
 
 Add to `package.json` scripts:
 ```json
-"db:migrate": "node src/models/migrate.js"
+"db:migrate": "node shared/models/migrate.js"
 ```
 
 ---
 
 ## Implementation Details
 
-### `src/models/db.js`
+### `shared/models/db.js`
 Use `@neondatabase/serverless` with `neon()` for simple queries and `Pool` for transactions.
 
-The connection string is augmented with `options=-c TimeZone=<TZ>` (default `Asia/Dubai`) so every Postgres session opened by the WebSocket-based `Pool` runs in Dubai local time. A `pool.on('connect')` hook also issues `SET TIME ZONE` as a fallback in case an upstream proxy strips the libpq `options` parameter. NOTE: Neon's HTTP REST endpoint used by `sql` is stateless per request and silently drops `options`; absolute `TIMESTAMPTZ` instants are still returned correctly because the Node process itself runs in `Asia/Dubai` (`process.env.TZ` is forced in `src/config/index.js`).
+The connection string is augmented with `options=-c TimeZone=<TZ>` (default `Asia/Dubai`) so every Postgres session opened by the WebSocket-based `Pool` runs in Dubai local time. A `pool.on('connect')` hook also issues `SET TIME ZONE` as a fallback in case an upstream proxy strips the libpq `options` parameter. NOTE: Neon's HTTP REST endpoint used by `sql` is stateless per request and silently drops `options`; absolute `TIMESTAMPTZ` instants are still returned correctly because the Node process itself runs in `Asia/Dubai` (`process.env.TZ` is forced in `shared/config/index.js`).
 
 ```js
 const { neon, Pool } = require('@neondatabase/serverless');
@@ -60,8 +60,8 @@ pool.on('connect', client => {
 module.exports = { sql, pool };
 ```
 
-### Migration Runner (`src/models/migrate.js`)
-- Reads all `.sql` files from `src/migrations/` sorted by filename
+### Migration Runner (`shared/models/migrate.js`)
+- Reads all `.sql` files from `shared/migrations/` sorted by filename
 - Creates a `_migrations` table if it doesn't exist
 - Skips already-applied migrations (tracked by filename)
 - Runs each pending migration in a transaction

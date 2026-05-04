@@ -9,8 +9,8 @@ npm-debug.log*
 
 # PM2
 .pm2/
-logs/*
-!logs/.gitkeep
+worker/logs/*
+!worker/logs/.gitkeep
 
 # OS
 .DS_Store

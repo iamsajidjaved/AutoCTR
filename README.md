@@ -62,7 +62,7 @@ The two halves share nothing but the database. Spin up as many local worker host
 
 - **No internal API server.** The previous Express `ctr-api` PM2 process is gone — every endpoint is a Next.js Route Handler under `dashboard/app/api/`. The dashboard talks to itself same-origin, so no CORS, no public worker URLs, no tunneling.
 - **Workers are passive consumers of the database.** They never expose any port. To add capacity, spin up another PC and `pm2 start ecosystem.config.js`.
-- **Shared modules** (`src/services`, `src/models`, `src/config`, `src/utils`, `src/providers`) are reused by both halves: imported by the Next.js Route Handlers via `outputFileTracingRoot` and by the PM2 workers as ordinary `require(...)` calls.
+- **Shared modules** (`shared/services`, `shared/models`, `shared/config`, `shared/utils`, `shared/providers`) are reused by both halves: imported by the Next.js Route Handlers via the `@server/*` webpack alias (and Vercel's `outputFileTracingRoot`) and by the PM2 workers as ordinary `require(...)` calls. The PM2 entry point is `shared/workers/trafficWorker.js`.
 
 ---
 
@@ -105,8 +105,9 @@ autoctr/
 │   │   └── server-auth.ts        ← Bearer JWT verification helper for routes
 │   ├── next.config.ts            ← outputFileTracingRoot widens tracing to repo root
 │   ├── vercel.json
+│   ├── package.json
 │   └── .env.example
-├── src/                          ← shared backend (used by Vercel + workers)
+├── shared/                       ← shared backend (used by dashboard + workers)
 │   ├── config/index.js
 │   ├── models/                   ← db.js, userModel, campaignModel, trafficDetailModel, migrate.js
 │   ├── services/                 ← authService, campaignService, analyticsService,
@@ -116,17 +117,26 @@ autoctr/
 │   ├── providers/shoplikeProxy.js
 │   ├── utils/                    ← scheduler, humanBehavior, deviceProfiles, proxyParser
 │   ├── workers/trafficWorker.js  ← PM2 entry point
-│   └── migrations/*.sql
-├── extensions/rektcaptcha/       ← unpacked Chrome extension (worker hosts only)
-├── ecosystem.config.js           ← PM2 config — workers only (no ctr-api)
-├── package.json                  ← worker-side deps + scripts
-└── .env.example                  ← worker-side .env template
+│   ├── migrations/*.sql
+│   └── package.json              ← runtime deps live here so Node resolution from /shared/* works
+├── worker/                       ← local PM2 host (one folder per machine)
+│   ├── ecosystem.config.js       ← PM2 config — workers only (no ctr-api)
+│   ├── extensions/rektcaptcha/   ← unpacked Chrome extension
+│   ├── logs/                     ← PM2 stdout/stderr files
+│   ├── scripts/                  ← reset-failed-to-pending, reinstall-captcha, test-captcha
+│   ├── package.json              ← worker scripts; postinstall installs ../shared deps
+│   └── .env.example              ← worker-side .env template
+├── specs/                        ← per-feature spec docs
+├── CLAUDE.md
+├── README.md
+├── .gitignore
+└── package.json                  ← slim root with delegating npm scripts (no source code)
 ```
 
 > The Vercel deployment uses `dashboard/` as its **Root Directory**. Next.js's
 > `outputFileTracingRoot` is widened to the repository root so Route Handlers
-> can `require('../../src/services/...')` and Vercel still bundles `src/` into
-> the serverless function image.
+> can `require('@server/services/...')` (alias → `../shared/*`) and Vercel
+> still bundles `shared/` into the serverless function image.
 
 ---
 
@@ -151,18 +161,18 @@ Set these in the Vercel project's **Environment Variables** UI (or `vercel env`)
 
 A template lives at [dashboard/.env.example](dashboard/.env.example).
 
-### B) Local worker host (`.env` at repo root)
+### B) Local worker host (`worker/.env`)
 
 | Var | Required | Purpose |
 |---|---|---|
 | `DATABASE_URL` | yes | Same Neon URL the Vercel project uses |
-| `JWT_SECRET` | yes | Required by `src/config` at import; workers don't sign tokens |
+| `JWT_SECRET` | yes | Required by `shared/config` at first access; workers don't sign tokens |
 | `SHOPLIKE_API_KEYS` | yes | Comma-separated rotating-proxy keys |
-| `REKTCAPTCHA_PATH` | no | Default `./extensions/rektcaptcha` |
+| `REKTCAPTCHA_PATH` | no | Default `./extensions/rektcaptcha` (resolved against `worker/`) |
 | `APP_TIMEZONE` | no | Default `Asia/Dubai` |
 | `WORKER_CONCURRENCY` | no | Default = host CPU core count |
 
-A template lives at [.env.example](.env.example).
+A template lives at [worker/.env.example](worker/.env.example).
 
 ---
 
@@ -173,7 +183,8 @@ A template lives at [.env.example](.env.example).
 Run migrations once against your Neon database (idempotent):
 
 ```bash
-npm install            # installs worker + shared deps
+cd worker
+npm install            # installs worker scripts + ../shared runtime deps
 npm run db:migrate
 ```
 
@@ -185,7 +196,7 @@ Migrations run from any host that can reach Neon — typically a worker PC.
 2. Import the repo into Vercel.
 3. **Project Settings → Build & Development → Root Directory:** `dashboard`.
 4. **Settings → Environment Variables:** add the vars from section A above.
-5. Trigger a deploy. Vercel will run `next build` from `dashboard/`; the widened `outputFileTracingRoot` ensures `src/` is bundled into the function image.
+5. Trigger a deploy. Vercel will run `next build` from `dashboard/`; the widened `outputFileTracingRoot` ensures `shared/` is bundled into the function image.
 
 The dashboard is reachable at your Vercel URL. The API lives under the same origin at `/api/*`.
 
@@ -197,16 +208,17 @@ On every PC that should execute traffic:
 # 1. Install Node 20+ and PM2 globally
 npm install -g pm2
 
-# 2. Clone repo and install root deps
+# 2. Clone repo and install worker deps (postinstall pulls ../shared deps too)
 git clone <repo-url>
-cd autoctr
+cd autoctr/worker
 npm install
 
 # 3. Copy & fill .env (see section B above)
 cp .env.example .env       # then edit
 
 # 4. Unpack RektCaptcha extension into ./extensions/rektcaptcha/
-#    (one-time; required because workers run headed Chromium)
+#    (one-time; required because workers run headed Chromium —
+#     `npm run captcha:reinstall` automates the download.)
 
 # 5. Start workers
 pm2 start ecosystem.config.js
@@ -214,13 +226,15 @@ pm2 save
 pm2 startup                # follow the printed command to persist across reboots
 ```
 
-The number of PM2 instances of `ctr-worker` defaults to the host's CPU core count. Override with `WORKER_CONCURRENCY` in `.env`.
+The number of PM2 instances of `ctr-worker` defaults to the host's CPU core count. Override with `WORKER_CONCURRENCY` in `worker/.env`.
 
 To add capacity, repeat steps 2–5 on another PC. All workers compete for due visits via Postgres `FOR UPDATE SKIP LOCKED` — duplicate processing is impossible.
 
 ---
 
 ## Running Locally (dev)
+
+From the repository root (the slim root `package.json` delegates to each module):
 
 ```bash
 # Terminal 1 — dashboard + API on http://localhost:3001
@@ -230,7 +244,7 @@ npm run dashboard
 npm run worker
 ```
 
-The dev dashboard reads `DATABASE_URL` from `dashboard/.env.local` (create one based on `dashboard/.env.example`). Leave `NEXT_PUBLIC_API_URL` unset so the dashboard hits its own `/api/*` routes.
+The dev dashboard reads `DATABASE_URL` from `dashboard/.env.local` (create one based on `dashboard/.env.example`). Leave `NEXT_PUBLIC_API_URL` unset so the dashboard hits its own `/api/*` routes. The worker reads `worker/.env`.
 
 ---
 
@@ -251,11 +265,14 @@ The dev dashboard reads `DATABASE_URL` from `dashboard/.env.local` (create one b
 
 ### Maintenance scripts
 
+All three are wired through npm in both `worker/package.json` and the slim root `package.json` (which delegates):
+
 | Action | Command |
 |---|---|
 | Reset failed visits → pending (one campaign) | `npm run reset:failed -- <campaignId>` |
 | Reset failed visits → pending (every campaign) | `npm run reset:failed` |
-| Reinstall RektCaptcha extension | `node scripts/reinstall-captcha-extension.js` |
+| Reinstall RektCaptcha extension | `npm run captcha:reinstall` |
+| Smoke-test parallel CAPTCHA solving | `npm run captcha:test [n]` |
 
 `<campaignId>` is the UUID shown in the dashboard URL — `/dashboard/campaigns/<campaignId>`. The reset script flips every `failed` row in scope back to `pending`, clears `error_message` / `started_at` / `completed_at` / `ip` / `actual_dwell_seconds`, and — if the parent campaign was auto-marked `completed` because no pending/running rows remained — flips it back to `running` so the next worker poll picks the rows up. Already-running campaigns are left untouched.
 
@@ -363,9 +380,9 @@ Every 5 seconds:
 
 ## Proxy Integration
 
-Proxies are assigned at **execution time**, never at campaign creation. Providers are tried in order via `src/services/proxyService.js`. Currently integrated:
+Proxies are assigned at **execution time**, never at campaign creation. Providers are tried in order via `shared/services/proxyService.js`. Currently integrated:
 
-- **Shoplike** (`src/providers/shoplikeProxy.js`)
+- **Shoplike** (`shared/providers/shoplikeProxy.js`)
 
 ### Cooldown-aware key pool
 
@@ -383,8 +400,8 @@ More keys = more parallel distinct IPs available within any 60s window.
 
 AutoCTR uses the **RektCaptcha** Chrome extension (no API key required).
 
-1. Unpack the extension to `./extensions/rektcaptcha/` on every worker host.
-2. Set `REKTCAPTCHA_PATH=./extensions/rektcaptcha` in `.env` (this is also the default).
+1. Unpack the extension to `worker/extensions/rektcaptcha/` on every worker host (or run `npm run captcha:reinstall`).
+2. Set `REKTCAPTCHA_PATH=./extensions/rektcaptcha` in `worker/.env` (this is also the default; the path is resolved against the `worker/` directory).
 
 The extension is loaded into each Puppeteer browser instance via `--load-extension`. CAPTCHA checks occur on first load of `google.com` and after submitting the keyword search.
 
@@ -418,19 +435,19 @@ All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so t
 ## Troubleshooting
 
 **`DATABASE_URL` / `JWT_SECRET` missing on workers**
-→ Ensure `.env` exists at the repo root. PM2 child processes only see the env keys explicitly forwarded by `ecosystem.config.js` (`SHARED_ENV`); add new vars there if you introduce them.
+→ Ensure `worker/.env` exists. PM2 child processes only see the env keys explicitly forwarded by `worker/ecosystem.config.js` (`SHARED_ENV`); add new vars there if you introduce them.
 
 **`DATABASE_URL` / `JWT_SECRET` missing on Vercel**
 → Set them in Project Settings → Environment Variables for the right environment (Production / Preview / Development) and redeploy.
 
-**Vercel build fails with `Cannot find module '../../src/services/...'`**
-→ `next.config.ts` must include `outputFileTracingRoot` pointing to the repo root and `outputFileTracingIncludes['/api/**/*'] = ['../src/**/*.js']`. Verify the file looks like the version in this repo.
+**Vercel build fails with `Cannot find module '@server/services/...'`**
+→ `dashboard/next.config.ts` must include `outputFileTracingRoot` pointing to the repo root and `outputFileTracingIncludes['/api/**/*'] = ['../shared/**/*.js']`, plus the `@server` webpack alias to `../shared`. Verify the file matches the version in this repo.
 
 **PM2 worker stuck `errored`**
-→ `pm2 logs ctr-worker --err --lines 50`. Common causes: empty `SHOPLIKE_API_KEYS`, missing `.env`, or no display attached (Puppeteer is headed).
+→ `pm2 logs ctr-worker --err --lines 50`. Common causes: empty `SHOPLIKE_API_KEYS`, missing `worker/.env`, or no display attached (Puppeteer is headed).
 
 **Visits never run despite campaign `running`**
-→ Confirm at least one worker host is reachable to Neon and PM2 shows `online`. Check `pm2 logs ctr-worker` for proxy/captcha failures. Run `npm run db:migrate` on the worker host if migrations are stale.
+→ Confirm at least one worker host is reachable to Neon and PM2 shows `online`. Check `pm2 logs ctr-worker` for proxy/captcha failures. Run `npm run db:migrate` from `worker/` if migrations are stale.
 
 **Dashboard returns 401 on every call**
 → The browser cookie is missing or expired. Log in again. If your Vercel deployment URL changed, clear cookies for the old domain.
@@ -442,4 +459,4 @@ All wall-clock arithmetic uses `Intl` APIs against `APP_TIMEZONE` directly, so t
 → Run `npm run reset:failed -- <campaignId>` (UUID from `/dashboard/campaigns/<campaignId>`). This flips every `failed` row for that campaign back to `pending`, clears the per-row error/timestamp fields, and reactivates the campaign if it was already auto-completed. Omit `<campaignId>` to apply globally to every campaign in the database.
 
 **CAPTCHA extension not loading**
-→ Verify `./extensions/rektcaptcha/manifest.json` exists on the worker host. The `REKTCAPTCHA_PATH` is relative to the project root.
+→ Verify `worker/extensions/rektcaptcha/manifest.json` exists on the worker host. The `REKTCAPTCHA_PATH` is relative to the `worker/` directory.

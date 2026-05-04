@@ -1,0 +1,23 @@
+{
+  "name": "autoctr-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AutoCTR — local PM2 traffic workers. Runtime entry point and runtime deps live in ../shared/. This package only owns the PM2 ecosystem config, the unpacked Chrome extension, the local logs, and the operational scripts. Run `npm install` here to also install ../shared deps via the postinstall hook.",
+  "scripts": {
+    "postinstall": "npm --prefix ../shared install",
+    "worker": "node ../shared/workers/trafficWorker.js",
+    "worker:pm2": "pm2 start ecosystem.config.js",
+    "worker:logs": "pm2 logs ctr-worker",
+    "worker:stop": "pm2 stop ecosystem.config.js && pm2 delete ecosystem.config.js",
+    "db:migrate": "node ../shared/models/migrate.js",
+    "reset:failed": "node scripts/reset-failed-to-pending.js",
+    "captcha:reinstall": "node scripts/reinstall-captcha-extension.js",
+    "captcha:test": "node scripts/test-captcha-extension.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

@@ -80,7 +80,7 @@ totalImpressions = required_visits - totalClicks
 #### Helper: `buildDayVisits(dayVisits, ctr, mobileRatio, dayStart)`
 Shared between both modes — generates the type/device/timestamp arrays for one day slice.
 
-### `src/models/trafficDetailModel.js`
+### `shared/models/trafficDetailModel.js`
 ```js
 bulkCreate(rows)
   → INSERT INTO traffic_details (...) VALUES ... (batch insert, max 500 rows per query)

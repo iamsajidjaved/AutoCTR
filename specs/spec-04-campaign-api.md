@@ -29,7 +29,7 @@ src/
 
 ## Implementation Details
 
-### `src/models/campaignModel.js`
+### `shared/models/campaignModel.js`
 ```js
 create({ userId, website, keyword, requiredVisits, ctr, mobileDesktopRatio, minDwellSeconds, maxDwellSeconds, campaignDurationDays, initialDailyVisits, dailyIncreasePct })
   → inserts into traffic_summaries (including duration/daily fields), returns row
@@ -60,7 +60,7 @@ pauseAndCancelJobs(id)
   → UPDATE traffic_summaries SET status = 'paused' WHERE id = $1
 ```
 
-### `src/services/campaignService.js`
+### `shared/services/campaignService.js`
 ```js
 createCampaign(userId, body)
   → validate inputs (see below)
@@ -207,7 +207,7 @@ Returns aggregated KPIs and time-series data for the authenticated user's dashbo
 
 **Files:**
 ```
-src/services/analyticsService.js     ← getOverview(userId)
+shared/services/analyticsService.js     ← getOverview(userId)
 src/controllers/analyticsController.js
 src/routes/analytics.js              ← mounted at /api/analytics
 ```

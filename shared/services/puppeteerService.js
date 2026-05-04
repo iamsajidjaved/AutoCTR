@@ -12,17 +12,18 @@ const config = require('../config');
 
 puppeteer.use(StealthPlugin());
 
-// Resolve the extension path against the project root rather than the
-// process cwd. PM2 sets cwd correctly via ecosystem.config.js, but if the
-// worker is ever launched directly (or PM2 is started from a different
+// Resolve the extension path against the worker project root rather than the
+// process cwd. PM2 sets cwd correctly via worker/ecosystem.config.js, but if
+// the worker is ever launched directly (or PM2 is started from a different
 // directory on a misconfigured machine) a relative `./extensions/...`
 // silently resolves to a non-existent path, the extension is never loaded,
-// and CAPTCHAs go unsolved with no obvious cause.
-const PROJECT_ROOT = path.resolve(__dirname, '../..');
+// and CAPTCHAs go unsolved with no obvious cause. The unpacked extension
+// lives at <repo>/worker/extensions/rektcaptcha/.
+const WORKER_ROOT = path.resolve(__dirname, '../..', 'worker');
 const rawExtPath = config.REKTCAPTCHA_PATH || './extensions/rektcaptcha';
 const extensionPath = path.isAbsolute(rawExtPath)
   ? rawExtPath
-  : path.resolve(PROJECT_ROOT, rawExtPath);
+  : path.resolve(WORKER_ROOT, rawExtPath);
 const extensionExists = fs.existsSync(extensionPath);
 
 // Required files for RektCaptcha to actually solve a CAPTCHA. Antivirus on
