@@ -2,7 +2,19 @@
 // Downloads a fresh copy of the RektCaptcha extension from the Chrome Web Store,
 // replaces extensions/rektcaptcha/, and verifies required model files.
 //
-// Usage: node scripts/reinstall-captcha-extension.js
+// Usage:
+//   node scripts/reinstall-captcha-extension.js
+//   node scripts/reinstall-captcha-extension.js --force-baseline-wasm
+//   REKTCAPTCHA_BASELINE_WASM=true node scripts/reinstall-captcha-extension.js
+//
+// --force-baseline-wasm (or env REKTCAPTCHA_BASELINE_WASM=true): after install,
+// delete dist/ort-wasm-simd*.wasm and dist/ort-wasm-threaded.wasm so onnxruntime
+// is forced to load dist/ort-wasm.wasm (the baseline scalar build). Use this on
+// hosts where the SIMD/threaded variants fail to initialise inside the bframe
+// (symptom: extension clicks the "I'm not a robot" checkbox but never selects
+// tiles — see README.md → Troubleshooting → "CAPTCHA solver stuck after
+// checkbox click"). Trade-off: ~30-50% slower per solve, max compatibility.
+//
 // No npm install needed — uses only Node.js built-ins.
 
 const https = require('https');
@@ -181,6 +193,38 @@ async function main() {
     // both set to false (!1). Enable them so Puppeteer profiles auto-solve
     // CAPTCHAs without manual popup interaction (required by spec-09).
     patchAutoSolve(path.join(DEST, 'background.js'));
+
+    // Optional: strip SIMD/threaded WASM variants so onnxruntime is forced
+    // onto the baseline ort-wasm.wasm build. See header comment for why.
+    const baselineWasm =
+      process.argv.includes('--force-baseline-wasm') ||
+      String(process.env.REKTCAPTCHA_BASELINE_WASM || '').toLowerCase() === 'true';
+    if (baselineWasm) {
+      const distDir = path.join(DEST, 'dist');
+      const stripped = [];
+      try {
+        for (const f of fs.readdirSync(distDir)) {
+          // Keep only the baseline ort-wasm.wasm. Remove any other .wasm
+          // (SIMD, threaded, simd-threaded, JSEP variants).
+          if (f.endsWith('.wasm') && f !== 'ort-wasm.wasm') {
+            fs.unlinkSync(path.join(distDir, f));
+            stripped.push(f);
+          }
+        }
+      } catch (err) {
+        console.error(`[reinstall] WARNING: could not strip WASM variants from ${distDir}: ${err.message}`);
+      }
+      if (stripped.length > 0) {
+        console.log(`[reinstall] Baseline-WASM mode: removed ${stripped.length} non-baseline WASM file(s): ${stripped.join(', ')}`);
+      } else {
+        console.log(`[reinstall] Baseline-WASM mode: nothing to strip (only ort-wasm.wasm present).`);
+      }
+      const baselinePath = path.join(distDir, 'ort-wasm.wasm');
+      if (!fs.existsSync(baselinePath)) {
+        console.error(`[reinstall] FATAL: baseline ort-wasm.wasm missing at ${baselinePath} after strip. ONNX will not initialise. Re-run without --force-baseline-wasm.`);
+        process.exit(1);
+      }
+    }
 
     console.log(
       `[reinstall] All required files verified. Models: ${modelCount} .ort files`

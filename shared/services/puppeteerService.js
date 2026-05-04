@@ -42,6 +42,16 @@ const REQUIRED_EXTENSION_FILES = [
   'models/nms-yolov5-det.ort',
 ];
 
+// Per-machine parity report. We log file SIZES (not just existence) for
+// every model and every WASM variant because a partial AV quarantine often
+// truncates the file to 0 bytes while leaving the entry on disk — silent
+// breakage that the existence check misses. Comparing the size totals
+// between a known-good worker host and a failing one immediately reveals
+// AV interference.
+function statSize(p) {
+  try { return fs.statSync(p).size; } catch (_) { return -1; }
+}
+
 function diagnoseExtension() {
   if (!extensionExists) {
     console.error(`[captcha] FATAL: RektCaptcha extension folder not found at ${extensionPath}. CAPTCHAs will NOT be solved. Check REKTCAPTCHA_PATH env var and that the folder was deployed to this machine.`);
@@ -52,12 +62,48 @@ function diagnoseExtension() {
     console.error(`[captcha] RektCaptcha is installed at ${extensionPath} but the following required files are MISSING: ${missing.join(', ')}. Likely cause: antivirus quarantined them. Restore from the source repo and add an AV exclusion for the extensions folder.`);
     return;
   }
-  // Count model files for parity reporting between machines.
-  let modelCount = 0;
+  // Inventory models/ and dist/ with sizes. Files under 1 KB are flagged as
+  // suspect — real .ort models are 100 KB-20 MB, real WASM is >500 KB.
+  let modelEntries = [];
+  let wasmEntries = [];
   try {
-    modelCount = fs.readdirSync(path.join(extensionPath, 'models')).filter(f => f.endsWith('.ort')).length;
-  } catch (_) { /* already reported above */ }
-  console.log(`[captcha] RektCaptcha OK at ${extensionPath} (models: ${modelCount} .ort files)`);
+    modelEntries = fs.readdirSync(path.join(extensionPath, 'models'))
+      .filter(f => f.endsWith('.ort'))
+      .map(f => ({ f, size: statSize(path.join(extensionPath, 'models', f)) }));
+  } catch (_) { /* directory missing — handled above via REQUIRED_EXTENSION_FILES */ }
+  try {
+    wasmEntries = fs.readdirSync(path.join(extensionPath, 'dist'))
+      .filter(f => f.endsWith('.wasm'))
+      .map(f => ({ f, size: statSize(path.join(extensionPath, 'dist', f)) }));
+  } catch (_) { /* dist may be absent in --force-baseline-wasm-stripped trees, surfaced below */ }
+
+  const suspectModels = modelEntries.filter(e => e.size >= 0 && e.size < 1024);
+  const suspectWasm = wasmEntries.filter(e => e.size >= 0 && e.size < 1024);
+  const totalModelMB = (modelEntries.reduce((s, e) => s + Math.max(0, e.size), 0) / 1048576).toFixed(1);
+  const totalWasmMB = (wasmEntries.reduce((s, e) => s + Math.max(0, e.size), 0) / 1048576).toFixed(1);
+
+  console.log(
+    `[captcha] RektCaptcha OK at ${extensionPath}` +
+    ` (models: ${modelEntries.length} .ort files, ${totalModelMB} MB;` +
+    ` wasm: ${wasmEntries.length} files, ${totalWasmMB} MB)`
+  );
+  if (wasmEntries.length === 0) {
+    console.error(`[captcha] WARNING: no WASM files in ${path.join(extensionPath, 'dist')}. ONNX runtime will fail to initialise inside the bframe; CAPTCHAs will not solve. Reinstall the extension with: npm run captcha:reinstall`);
+  }
+  if (suspectModels.length > 0 || suspectWasm.length > 0) {
+    const fmt = arr => arr.map(e => `${e.f}=${e.size}B`).join(', ');
+    console.error(
+      `[captcha] WARNING: suspiciously small files (likely AV-truncated) — ` +
+      (suspectModels.length ? `models: ${fmt(suspectModels)} ` : '') +
+      (suspectWasm.length ? `wasm: ${fmt(suspectWasm)}` : '') +
+      ` — add an AV exclusion for ${extensionPath} and run npm run captcha:reinstall.`
+    );
+  }
+  // If only the baseline WASM is present (force-baseline-wasm install), log
+  // it explicitly so multi-machine comparisons aren't confusing.
+  if (wasmEntries.length === 1 && wasmEntries[0].f === 'ort-wasm.wasm') {
+    console.log(`[captcha] Baseline WASM mode: only ort-wasm.wasm present. ONNX runtime will use the scalar build (slower per solve, max compatibility).`);
+  }
 }
 
 diagnoseExtension();
@@ -405,6 +451,20 @@ async function runJob(job, ctx) {
   // hardware configurations have it off by default; without it the inference
   // silently falls back to a scalar path that may hang or produce no output.
   launchArgs.push('--enable-features=WebAssemblySimd');
+
+  // Software-render escape hatch. On hosts where the GPU driver is broken,
+  // missing, or where Chromium's GPU process keeps crashing, the bframe's
+  // WebAssembly+OffscreenCanvas pipeline can deadlock — the extension clicks
+  // the checkbox but never selects tiles. Forcing SwiftShader (a pure-CPU GL
+  // implementation) sidesteps the GPU entirely. Off by default because it
+  // costs ~10-20% CPU per browser; enable per-host via env var only on the
+  // PC(s) reproducing the issue. See README.md → Troubleshooting →
+  // "CAPTCHA solver stuck after checkbox click".
+  if (String(process.env.WORKER_FORCE_SOFTWARE_RENDER || '').toLowerCase() === 'true') {
+    launchArgs.push('--disable-gpu', '--disable-software-rasterizer', '--use-gl=swiftshader');
+    console.log(`[captcha] pid=${process.pid} WORKER_FORCE_SOFTWARE_RENDER=true — using SwiftShader (no GPU)`);
+  }
+
   if (extensionExists) {
     launchArgs.push(
       `--disable-extensions-except=${extensionPath}`,
@@ -470,6 +530,11 @@ async function runJob(job, ctx) {
   }
 
   const page = await browser.newPage();
+
+  // Wire the bframe console listener as early as possible so we capture the
+  // RektCaptcha model-load logs (or their telling absence) for any CAPTCHA
+  // that appears later in this page's lifetime. Idempotent.
+  captchaService.attachBframeConsoleCapture(page);
 
   if (proxy.username) {
     await page.authenticate({ username: proxy.username, password: proxy.password });

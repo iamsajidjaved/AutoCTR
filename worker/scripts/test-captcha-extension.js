@@ -1,12 +1,19 @@
 // Smoke test: launches N Puppeteer browsers in parallel, each with the
 // RektCaptcha extension, then visits a test reCAPTCHA page and confirms the
-// extension's content script is alive and its settings are populated.
+// extension's content script is alive AND the ONNX model successfully
+// classifies image tiles.
 //
-// Reproduces the multi-instance race that previously left the solver dormant.
-// Run with: node scripts/test-captcha-extension.js [instances]
+// Reproduces the multi-instance race that previously left the solver dormant,
+// AND catches the more recent failure mode where the checkbox is clicked but
+// the model never selects tiles (ONNX-runtime WASM init failure inside the
+// bframe). Run with: node scripts/test-captcha-extension.js [instances]
 //
-// Pass = every instance reports recaptcha_auto_open === true AND
-// recaptcha_auto_solve === true within 5 seconds of page load.
+// Pass = every instance EITHER:
+//   * populates g-recaptcha-response (full solve), OR
+//   * shows >=1 selected tile inside the bframe within 30 s (model is alive
+//     even if Google rejected the verification submit).
+// Bframe-visible alone does NOT pass — that proved insufficient on the
+// failing PCs.
 
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
@@ -59,29 +66,40 @@ async function runOne(idx) {
     // the solver is alive.
     const start = Date.now();
     let success = false;
-    while (Date.now() - start < 15000) {
-      const state = await page.evaluate(() => {
-        const anchorIframe = Array.from(document.querySelectorAll('iframe'))
-          .find(f => /recaptcha\/api2\/anchor/.test(f.src));
-        if (!anchorIframe) return { phase: 'no-anchor-iframe' };
-        // We can't reach into a cross-origin iframe's DOM. Instead infer from
-        // the bframe (image-challenge) iframe appearing OR the visible state.
+    let lastState = null;
+    const TIMEOUT_MS = 30000;
+    while (Date.now() - start < TIMEOUT_MS) {
+      // Top-level state — token populated, or bframe rendered.
+      const top = await page.evaluate(() => {
         const bframe = Array.from(document.querySelectorAll('iframe'))
           .find(f => /recaptcha\/api2\/bframe/.test(f.src));
         const responseEl = document.getElementById('g-recaptcha-response');
         return {
-          phase: 'loaded',
           hasBframe: !!bframe,
           bframeVisible: bframe ? getComputedStyle(bframe).visibility === 'visible' : false,
           token: responseEl ? (responseEl.value || '').length : 0,
         };
       });
-      // Auto-open path: bframe becomes visible (Rekt clicked the checkbox)
-      // OR token populated (already solved). Either proves the extension is
-      // active.
-      if (state.bframeVisible || state.token > 0) {
+
+      // Reach into the bframe to count selected tiles — proves the model is
+      // actually classifying images, not just that the iframe loaded.
+      let bframeState = null;
+      const bframe = page.frames().find(f => /recaptcha\/api2\/bframe/.test(f.url()));
+      if (bframe) {
+        try {
+          bframeState = await bframe.evaluate(() => {
+            const tiles = document.querySelectorAll('.rc-imageselect-target td, .rc-image-tile-wrapper');
+            const selected = document.querySelectorAll('.rc-imageselect-tileselected, .rc-imageselect-dynamic-selected');
+            return { tileCount: tiles.length, tilesSelected: selected.length };
+          });
+        } catch (_) { /* iframe may have navigated */ }
+      }
+      lastState = { top, bframeState };
+
+      const tilesSelected = bframeState && bframeState.tilesSelected > 0;
+      if (top.token > 0 || tilesSelected) {
         success = true;
-        console.log(`[#${idx}] PASS after ${Date.now() - start}ms (${JSON.stringify(state)})`);
+        console.log(`[#${idx}] PASS after ${Date.now() - start}ms (${JSON.stringify(lastState)})`);
         break;
       }
       await new Promise(r => setTimeout(r, 500));
@@ -90,7 +108,7 @@ async function runOne(idx) {
       const final = await page.evaluate(() => ({
         iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src),
       }));
-      console.error(`[#${idx}] FAIL — extension never activated. Iframes: ${JSON.stringify(final.iframes)}`);
+      console.error(`[#${idx}] FAIL — model never selected tiles (and no token). Last state: ${JSON.stringify(lastState)}. Iframes: ${JSON.stringify(final.iframes)}`);
     }
     return success;
   } catch (err) {

@@ -44,6 +44,19 @@ const SHARED_ENV = {
   REKTCAPTCHA_PATH: process.env.REKTCAPTCHA_PATH || './extensions/rektcaptcha',
   APP_TIMEZONE: process.env.APP_TIMEZONE || 'Asia/Dubai',
   WORKER_CONCURRENCY: String(WORKER_CONCURRENCY),
+  // Per-host CAPTCHA workarounds. Both default off; set in worker/.env on a
+  // host that fails the runbook in README.md → Troubleshooting →
+  // "CAPTCHA solver stuck after checkbox click".
+  //   * WORKER_FORCE_SOFTWARE_RENDER=true  — launch Chromium with SwiftShader
+  //     (no GPU) so the bframe's WebAssembly+OffscreenCanvas pipeline can't
+  //     deadlock on a broken GPU driver.
+  //   * EXTENSION_WARMUP_MS                 — extra ms to wait after browser
+  //     launch before navigating, so the MV3 service worker has time to seed
+  //     chrome.storage.local on slow hosts.
+  //   * BRING_BROWSER_TO_FRONT=true        — debug only; surfaces the window.
+  WORKER_FORCE_SOFTWARE_RENDER: process.env.WORKER_FORCE_SOFTWARE_RENDER || '',
+  EXTENSION_WARMUP_MS: process.env.EXTENSION_WARMUP_MS || '',
+  BRING_BROWSER_TO_FRONT: process.env.BRING_BROWSER_TO_FRONT || '',
 };
 
 const COMMON = {
